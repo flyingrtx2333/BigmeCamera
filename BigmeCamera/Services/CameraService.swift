@@ -151,6 +151,53 @@ final class CameraService: NSObject {
     func currentCameraPosition() -> AVCaptureDevice.Position {
         currentPosition
     }
+    
+    // 获取当前设备
+    private func getCurrentDevice() -> AVCaptureDevice? {
+        guard let input = currentInput else { return nil }
+        return input.device
+    }
+    
+    // 获取缩放范围
+    func getZoomRange() -> (min: CGFloat, max: CGFloat) {
+        guard let device = getCurrentDevice() else {
+            return (1.0, 1.0)
+        }
+        return (device.minAvailableVideoZoomFactor, device.maxAvailableVideoZoomFactor)
+    }
+    
+    // 获取当前缩放值
+    func getCurrentZoom() -> CGFloat {
+        guard let device = getCurrentDevice() else {
+            return 1.0
+        }
+        return device.videoZoomFactor
+    }
+    
+    // 设置缩放值
+    func setZoom(_ zoomFactor: CGFloat, completion: ((CGFloat) -> Void)? = nil) {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            guard let device = self.getCurrentDevice() else { return }
+            
+            let clampedZoom = max(device.minAvailableVideoZoomFactor, 
+                                 min(zoomFactor, device.maxAvailableVideoZoomFactor))
+            
+            do {
+                try device.lockForConfiguration()
+                device.videoZoomFactor = clampedZoom
+                device.unlockForConfiguration()
+                
+                DispatchQueue.main.async {
+                    completion?(clampedZoom)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion?(device.videoZoomFactor)
+                }
+            }
+        }
+    }
 }
 
 extension CameraService: AVCaptureVideoDataOutputSampleBufferDelegate {

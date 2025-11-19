@@ -19,6 +19,10 @@ final class CameraViewModel: ObservableObject {
     @Published var isManualCenterMode: Bool = false
     private var manualPersonCenter: CGPoint?
     
+    // 相机缩放相关
+    @Published var currentZoom: CGFloat = 1.0
+    @Published var zoomRange: (min: CGFloat, max: CGFloat) = (1.0, 1.0)
+    
     private let cameraService = CameraService()
     nonisolated(unsafe) private let renderer = PersonSegmentationRenderer()
     private let renderQueue = DispatchQueue(label: "bigme.segmentation.queue")
@@ -47,6 +51,8 @@ final class CameraViewModel: ObservableObject {
         if authorizationStatus == .authorized {
             cameraService.startSession()
             isSessionRunning = true
+            updateZoomRange()
+            currentZoom = cameraService.getCurrentZoom()
         }
     }
 
@@ -58,10 +64,16 @@ final class CameraViewModel: ObservableObject {
     func requestPermission() {
         cameraService.requestAccess { [weak self] granted in
             DispatchQueue.main.async {
-                self?.authorizationStatus = self?.cameraService.currentAuthorizationStatus() ?? .notDetermined
+                guard let self else { return }
+                self.authorizationStatus = self.cameraService.currentAuthorizationStatus()
                 if granted {
-                    self?.cameraService.startSession()
-                    self?.isSessionRunning = true
+                    self.cameraService.startSession()
+                    self.isSessionRunning = true
+                    // 延迟一点时间确保设备已配置完成
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        self.updateZoomRange()
+                        self.currentZoom = self.cameraService.getCurrentZoom()
+                    }
                 }
             }
         }
@@ -91,7 +103,13 @@ final class CameraViewModel: ObservableObject {
     
     func switchCamera() {
         cameraService.switchCamera { [weak self] newPosition in
-            self?.cameraPosition = newPosition
+            guard let self else { return }
+            self.cameraPosition = newPosition
+            // 切换摄像头后延迟更新缩放范围，确保新设备已配置完成
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.updateZoomRange()
+                self.currentZoom = self.cameraService.getCurrentZoom()
+            }
         }
     }
     
@@ -107,6 +125,24 @@ final class CameraViewModel: ObservableObject {
     func resetToAutoCenter() {
         isManualCenterMode = false
         manualPersonCenter = nil
+    }
+    
+    // 更新缩放范围
+    func updateZoomRange() {
+        zoomRange = cameraService.getZoomRange()
+    }
+    
+    // 设置缩放值
+    func setZoom(_ zoomFactor: CGFloat) {
+        cameraService.setZoom(zoomFactor) { [weak self] actualZoom in
+            self?.currentZoom = actualZoom
+        }
+    }
+    
+    // 根据手势增量更新缩放
+    func updateZoomByScale(_ scale: CGFloat, initialZoom: CGFloat) {
+        let newZoom = initialZoom * scale
+        setZoom(newZoom)
     }
 
     func capturePhoto() {

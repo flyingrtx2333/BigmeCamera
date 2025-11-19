@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var viewModel: CameraViewModel
+    @State private var initialZoom: CGFloat = 1.0
 
     var body: some View {
         ZStack {
@@ -12,6 +13,14 @@ struct ContentView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("\(Int(viewModel.currentFPS)) FPS")
                                 .font(.system(size: 14, weight: .medium, design: .monospaced))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            
+                            // 缩放倍数显示
+                            Text("\(String(format: "%.2f", viewModel.currentZoom))x")
+                                .font(.system(size: 12, weight: .regular, design: .monospaced))
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
@@ -79,7 +88,7 @@ struct ContentView: View {
                                         .frame(width: 16, height: 16)
                                 }
                                 .position(x: screenX, y: screenY)
-                                .gesture(
+                                .highPriorityGesture(
                                     DragGesture(minimumDistance: 0)
                                         .onChanged { value in
                                             // 将拖动位置转换为图像坐标（UIKit 坐标系）
@@ -111,6 +120,18 @@ struct ContentView: View {
         }
         .background(Color.black)
         .ignoresSafeArea()
+        .gesture(
+            MagnificationGesture(minimumScaleDelta: 0.01)
+                .onChanged { value in
+                    if initialZoom == 1.0 {
+                        initialZoom = viewModel.currentZoom
+                    }
+                    viewModel.updateZoomByScale(value, initialZoom: initialZoom)
+                }
+                .onEnded { _ in
+                    initialZoom = 1.0
+                }
+        )
         .onAppear {
             viewModel.onAppear()
         }
