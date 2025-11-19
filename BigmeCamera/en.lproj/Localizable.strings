@@ -1,0 +1,25 @@
+/* App Name */
+"BigmeCamera" = "BigmeCamera";
+
+/* Control Panel */
+"Real-time Person Enlargement" = "Real-time Person Enlargement";
+"Person Scale" = "Person Scale";
+"Background Blur Intensity" = "Background Blur Intensity";
+"Segmentation Quality" = "Segmentation Quality";
+"Take Photo Now" = "Take Photo Now";
+
+/* Segmentation Quality */
+"Fast" = "Fast";
+"Balanced" = "Balanced";
+"Accurate" = "Accurate";
+
+/* Permissions */
+"Camera Permission Required" = "Camera Permission Required";
+"Camera Permission Description" = "Please allow BigmeCamera to access the camera for real-time person segmentation and enlargement effects.";
+"Grant Camera Access" = "Grant Camera Access";
+
+/* Status */
+"Preparing Camera" = "Preparing Camera...";
+"Saved" = "Saved";
+"Save Failed" = "Save Failed";
+

@@ -1,0 +1,25 @@
+/* 应用名称 */
+"BigmeCamera" = "大我相机";
+
+/* 控制面板 */
+"Real-time Person Enlargement" = "实时人物放大";
+"Person Scale" = "人物放大比例";
+"Background Blur Intensity" = "背景虚化强度";
+"Segmentation Quality" = "分割质量";
+"Take Photo Now" = "立即拍照";
+
+/* 分割质量 */
+"Fast" = "快速";
+"Balanced" = "平衡";
+"Accurate" = "精确";
+
+/* 权限 */
+"Camera Permission Required" = "需要相机权限";
+"Camera Permission Description" = "请允许大我相机访问摄像头，以便实时进行人物分割和放大效果。";
+"Grant Camera Access" = "授权相机访问";
+
+/* 状态 */
+"Preparing Camera" = "正在准备相机...";
+"Saved" = "已保存";
+"Save Failed" = "保存失败";
+
