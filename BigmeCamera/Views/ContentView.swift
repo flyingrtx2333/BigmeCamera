@@ -111,6 +111,16 @@ struct ContentView: View {
                     }
                 }
 
+            // 左侧控制列
+            HStack {
+                if viewModel.authorizationStatus == .authorized && viewModel.isSessionRunning {
+                    SideControlPanelView(viewModel: viewModel)
+                        .padding(.leading, 8)
+                        .padding(.top, 100)
+                }
+                Spacer()
+            }
+            
             VStack {
                 Spacer()
                 if viewModel.authorizationStatus == .authorized {

@@ -13,6 +13,7 @@ final class PersonSegmentationRenderer {
     private let context = CIContext()
     private let request: VNGeneratePersonSegmentationRequest
     private let sequenceHandler = VNSequenceRequestHandler()
+    private let beautyService = BeautyService()
 
     // 性能与稳定性成员
     private var lastMaskBufferSize: CGSize = .zero
@@ -22,8 +23,12 @@ final class PersonSegmentationRenderer {
     // Mask 断帧保护
     private var lastValidMask: CIImage?
     private var consecutiveMissingFrames: Int = 0
-    private let maxMissingFrames: Int = 3  // 最多允许连续丢失3帧
+    private let maxMissingFrames: Int = 8  // 最多允许连续丢失3帧
     private let minForegroundRatio: CGFloat = 0.01  // 最小前景像素比例（1%）
+    
+    // 性能优化：每 10 帧做一次 mask 健康检查
+    private var frameCount: Int = 0
+    private var lastMaskValidState: Bool = true
 
     init() {
         request = VNGeneratePersonSegmentationRequest()
@@ -31,7 +36,7 @@ final class PersonSegmentationRenderer {
         request.outputPixelFormat = kCVPixelFormatType_OneComponent8
     }
 
-    func render(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint? = nil) -> RenderResult? {
+    func render(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint? = nil, beautyConfig: BeautyConfig = BeautyConfig()) -> RenderResult? {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return nil }
 
         request.qualityLevel = config.quality.requestLevel
@@ -59,9 +64,18 @@ final class PersonSegmentationRenderer {
             .applyingFilter("CIMorphologyMaximum", parameters: ["inputRadius": 6])   // 例如 6-12
             .applyingFilter("CIMorphologyMinimum", parameters: ["inputRadius": 1])
         
-        // --- Mask 断帧保护：检测 mask 是否有效 ---
-        let foregroundRatio = calculateForegroundRatio(maskImage: maskImage)
-        let isMaskValid = foregroundRatio >= minForegroundRatio
+        // --- Mask 断帧保护：每 10 帧做一次健康检查 ---
+        frameCount += 1
+        let shouldCheckHealth = (frameCount % 10 == 0)
+        
+        var isMaskValid = lastMaskValidState  // 默认使用上次检查的结果
+        
+        if shouldCheckHealth {
+            // 每 10 帧执行一次完整的健康检查
+            let foregroundRatio = calculateForegroundRatio(maskImage: maskImage)
+            isMaskValid = foregroundRatio >= minForegroundRatio
+            lastMaskValidState = isMaskValid
+        }
         
         if isMaskValid {
             // Mask 有效，更新保存的有效 mask，重置丢失计数
@@ -84,28 +98,73 @@ final class PersonSegmentationRenderer {
 
         let invertedMask = maskImage.applyingFilter("CIColorInvert")
 
+
+        // --- 软化 invertedMask ---
+        // 缩小
+        let smallMask = invertedMask.applyingFilter("CILanczosScaleTransform", parameters: [
+            kCIInputScaleKey: 0.25
+        ])
+
+        // 模糊
+        let blurredSmallMask = smallMask.applyingFilter("CIGaussianBlur", parameters:[
+            kCIInputRadiusKey: 4
+        ])
+
+        // 放回
+        let softInvertedMask = blurredSmallMask
+            .applyingFilter("CILanczosScaleTransform", parameters: [
+                kCIInputScaleKey: 4.0
+            ])
+            .cropped(to: cameraImage.extent)
+
         // --- 分离前景人物 ---
-        let personCutout = cameraImage
+        var personCutout = cameraImage
             .applyingFilter("CIBlendWithMask", parameters: [
                 kCIInputBackgroundImageKey: CIImage(color: .clear).cropped(to: cameraImage.extent),
                 kCIInputMaskImageKey: maskImage
             ])
             .cropped(to: cameraImage.extent)
+        
+        // --- 应用美颜效果（仅对人物区域） ---
+        if beautyConfig.isEnabled {
+            personCutout = beautyService.applyBeauty(to: personCutout, config: beautyConfig)
+        }
 
         // --- 纯背景，完全移除人物，绝无残影 ---
+        // let backgroundOnly = cameraImage
+        //     .applyingFilter("CIBlendWithMask", parameters: [
+        //         kCIInputBackgroundImageKey: CIImage(color: .clear).cropped(to: cameraImage.extent),
+        //         kCIInputMaskImageKey: invertedMask
+        //     ])
+        //     .cropped(to: cameraImage.extent)
+
+        // --- 整张图生成超模糊版本（用于填补人物区域） ---
+        let small = cameraImage
+            .transformed(by: CGAffineTransform(scaleX: 0.4, y: 0.4))
+
+        let blurredSmall = small.applyingFilter("CIBoxBlur", parameters: [
+            kCIInputRadiusKey: 15   // radius 对 downscaled 会等效增大
+        ])
+
+        let ultraBlurred = blurredSmall
+            .transformed(by: CGAffineTransform(scaleX: 2.5, y: 2.5)) // 放回原图大小
+            .cropped(to: cameraImage.extent)
+
+
+        // --- 使用 invertedMask 把超模糊图贴到“人物区域” ---
         let backgroundOnly = cameraImage
             .applyingFilter("CIBlendWithMask", parameters: [
-                kCIInputBackgroundImageKey: CIImage(color: .clear).cropped(to: cameraImage.extent),
-                kCIInputMaskImageKey: invertedMask
+                kCIInputBackgroundImageKey: ultraBlurred,
+                kCIInputMaskImageKey: softInvertedMask   // 人物区域 = 1 → 使用 ultraBlurred
             ])
             .cropped(to: cameraImage.extent)
 
         // --- 背景模糊 ---
         let baseBackground = backgroundOnly
-            .applyingFilter("CIBoxBlur", parameters: [
-                kCIInputRadiusKey: config.blurRadius / 2
-            ])
-            .composited(over: CIImage(color: .clear).cropped(to: cameraImage.extent))
+            // .applyingFilter("CIBoxBlur", parameters: [
+            //     kCIInputRadiusKey: config.blurRadius / 2
+            // ])
+            // .composited(over: CIImage(color: .clear).cropped(to: cameraImage.extent))
 
         // ---- 使用自定义质心或默认中心 ----
         let personCenter = customCenter ?? CGPoint(x: cameraImage.extent.width / 2, y: cameraImage.extent.height / 2)

@@ -15,6 +15,9 @@ final class CameraViewModel: ObservableObject {
     @Published var currentFPS: Double = 0.0
     @Published var personCenter: CGPoint?
     
+    // 美颜相关
+    @Published var beautyConfig = BeautyConfig()
+    
     // 手动质心管理
     @Published var isManualCenterMode: Bool = false
     private var manualPersonCenter: CGPoint?
@@ -25,6 +28,7 @@ final class CameraViewModel: ObservableObject {
     
     private let cameraService = CameraService()
     nonisolated(unsafe) private let renderer = PersonSegmentationRenderer()
+    nonisolated(unsafe) private let beautyService = BeautyService()
     private let renderQueue = DispatchQueue(label: "bigme.segmentation.queue")
     
     // 帧率计算相关
@@ -40,7 +44,8 @@ final class CameraViewModel: ObservableObject {
                 let currentConfig = self.config
                 let manualCenter = self.manualPersonCenter
                 let isManual = self.isManualCenterMode
-                self.handle(sampleBuffer: sampleBuffer, config: currentConfig, customCenter: isManual ? manualCenter : nil)
+                let currentBeautyConfig = self.beautyConfig
+                self.handle(sampleBuffer: sampleBuffer, config: currentConfig, customCenter: isManual ? manualCenter : nil, beautyConfig: currentBeautyConfig)
             }
         }
     }
@@ -172,14 +177,15 @@ final class CameraViewModel: ObservableObject {
         }
     }
 
-    nonisolated private func handle(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint?) {
+    nonisolated private func handle(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint?, beautyConfig: BeautyConfig) {
         let renderer = self.renderer
         let currentTime = CFAbsoluteTimeGetCurrent()
         renderQueue.async {
             guard let result = renderer.render(
                 sampleBuffer: sampleBuffer,
                 config: config,
-                customCenter: customCenter
+                customCenter: customCenter,
+                beautyConfig: beautyConfig
             ) else {
                 return
             }
@@ -194,6 +200,24 @@ final class CameraViewModel: ObservableObject {
                 self.updateFPS(currentTime: currentTime)
             }
         }
+    }
+    
+    // MARK: - 美颜相关方法
+    
+    func updateBeautySmoothness(_ value: CGFloat) {
+        beautyConfig.smoothness = value
+    }
+    
+    func updateBeautyWhitening(_ value: CGFloat) {
+        beautyConfig.whitening = value
+    }
+    
+    func updateBeautySharpness(_ value: CGFloat) {
+        beautyConfig.sharpness = value
+    }
+    
+    func toggleBeauty() {
+        beautyConfig.isEnabled.toggle()
     }
     
     private func updateFPS(currentTime: CFAbsoluteTime) {
