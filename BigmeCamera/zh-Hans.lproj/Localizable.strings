@@ -23,3 +23,14 @@
 "Saved" = "已保存";
 "Save Failed" = "保存失败";
 
+/* 主页 */
+"Welcome Message" = "欢迎使用大我相机\n实时人物分割与放大";
+"Start Camera" = "开始拍照";
+
+/* 新手帮助 */
+"Onboarding Step 1" = "点击拖动可以移动人像位置";
+"Onboarding Step 2" = "缩放摄像机倍数";
+"Onboarding Step 3" = "拖动以调整缩放倍数";
+"Next" = "下一步";
+"Got It" = "知道了";
+

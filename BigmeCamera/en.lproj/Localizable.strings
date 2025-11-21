@@ -23,3 +23,14 @@
 "Saved" = "Saved";
 "Save Failed" = "Save Failed";
 
+/* Home */
+"Welcome Message" = "Welcome to BigmeCamera\nReal-time Person Segmentation & Enlargement";
+"Start Camera" = "Start Camera";
+
+/* Onboarding */
+"Onboarding Step 1" = "Tap and drag to move person position";
+"Onboarding Step 2" = "Pinch to zoom camera";
+"Onboarding Step 3" = "Drag to adjust zoom scale";
+"Next" = "Next";
+"Got It" = "Got It";
+

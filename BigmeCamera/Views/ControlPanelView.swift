@@ -2,12 +2,30 @@ import SwiftUI
 
 struct ControlPanelView: View {
     @ObservedObject var viewModel: CameraViewModel
-    @State private var showAdvancedControls = false
+    var showAdvancedControls: Binding<Bool>?
+    @State private var internalShowAdvancedControls = false
+    
+    init(viewModel: CameraViewModel, showAdvancedControls: Binding<Bool>? = nil) {
+        self.viewModel = viewModel
+        self.showAdvancedControls = showAdvancedControls
+    }
+    
+    private var actualShowAdvancedControls: Bool {
+        showAdvancedControls?.wrappedValue ?? internalShowAdvancedControls
+    }
+    
+    private func toggleAdvancedControls() {
+        if let binding = showAdvancedControls {
+            binding.wrappedValue.toggle()
+        } else {
+            internalShowAdvancedControls.toggle()
+        }
+    }
 
     var body: some View {
             VStack(spacing: 0) {
             // 上方控件区域（高级控件，可折叠）
-            if showAdvancedControls {
+            if actualShowAdvancedControls {
                 VStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(NSLocalizedString("Person Scale", comment: "")) \(String(format: "%.2f", viewModel.config.personScale))x")
@@ -104,10 +122,10 @@ struct ControlPanelView: View {
             // 右上角高级控件切换按钮
             Button {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    showAdvancedControls.toggle()
+                    toggleAdvancedControls()
                 }
             } label: {
-                Image(systemName: showAdvancedControls ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
+                Image(systemName: actualShowAdvancedControls ? "chevron.up.circle.fill" : "chevron.down.circle.fill")
                     .font(.system(size: 28))
                     .foregroundColor(.white)
                     .frame(width: 44, height: 44)
