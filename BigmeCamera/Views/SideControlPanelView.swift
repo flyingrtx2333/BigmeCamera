@@ -3,18 +3,18 @@ import SwiftUI
 struct SideControlPanelView: View {
     @ObservedObject var viewModel: CameraViewModel
     @State private var selectedCategory: ControlCategory? = nil
-    @State private var showBeautyControls = false
+    @State private var showCloneControls = false
     @State private var showStickerControls = false
     @State private var showFilterControls = false
     
     enum ControlCategory: String, CaseIterable {
-        case beauty = "美颜"
+        case clone = "分身"
         case sticker = "贴纸"
         case filter = "滤镜"
         
         var icon: String {
             switch self {
-            case .beauty: return "sparkles"
+            case .clone: return "person.2.fill"
             case .sticker: return "face.smiling"
             case .filter: return "camera.filters"
             }
@@ -40,9 +40,21 @@ struct SideControlPanelView: View {
                             }
                         } label: {
                             VStack(spacing: 4) {
-                                Image(systemName: category.icon)
-                                    .font(.system(size: 24))
-                                    .foregroundColor(selectedCategory == category ? .white : .white.opacity(0.6))
+                                ZStack {
+                                    Image(systemName: category.icon)
+                                        .font(.system(size: 24))
+                                        .foregroundColor(selectedCategory == category ? .white : .white.opacity(0.6))
+                                    
+                                    // 分身数量角标
+                                    if category == .clone && viewModel.cloneCount > 0 {
+                                        Text("\(viewModel.cloneCount)")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .frame(width: 16, height: 16)
+                                            .background(Circle().fill(Color.red))
+                                            .offset(x: 14, y: -14)
+                                    }
+                                }
                                 
                                 Text(category.rawValue)
                                     .font(.system(size: 10))
@@ -59,9 +71,9 @@ struct SideControlPanelView: View {
                         // 右侧控制面板（展开时显示，与对应按钮对齐）
                         if selectedCategory == category {
                             VStack(alignment: .leading, spacing: 16) {
-                                // 美颜控制
-                                if showBeautyControls {
-                                    beautyControlsView
+                                // 分身控制
+                                if showCloneControls {
+                                    cloneControlsView
                                 }
                                 
                                 // 贴纸控制（占位）
@@ -76,7 +88,7 @@ struct SideControlPanelView: View {
                             }
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
-                            .frame(width: 200)
+                            .frame(width: 220)
                             .background {
                                 RoundedRectangle(cornerRadius: 16)
                                     .fill(.ultraThinMaterial)
@@ -93,60 +105,115 @@ struct SideControlPanelView: View {
         }
     }
     
-    // MARK: - 美颜控制视图
+    // MARK: - 分身控制视图
     
-    private var beautyControlsView: some View {
+    private var cloneControlsView: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // 美颜开关
-            Toggle(isOn: Binding(
-                get: { viewModel.beautyConfig.isEnabled },
-                set: { _ in viewModel.toggleBeauty() }
-            )) {
-                Text("美颜")
+            // 标题和添加按钮
+            HStack {
+                Text("分身管理")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white)
+                
+                Spacer()
+                
+                Button {
+                    viewModel.addClone()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus.circle.fill")
+                        Text("添加")
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.blue)
+                }
             }
-            .toggleStyle(SwitchToggleStyle(tint: .blue))
             
-            if viewModel.beautyConfig.isEnabled {
-                VStack(alignment: .leading, spacing: 12) {
-                    // 磨皮
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("磨皮: \(Int(viewModel.beautyConfig.smoothness * 100))%")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.8))
-                        Slider(value: Binding(
-                            get: { viewModel.beautyConfig.smoothness },
-                            set: { viewModel.updateBeautySmoothness($0) }
-                        ), in: 0...1, step: 0.01)
-                        .tint(.white)
-                    }
+            // 分身列表
+            if viewModel.clones.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "person.2.slash")
+                        .font(.system(size: 24))
+                        .foregroundColor(.white.opacity(0.4))
                     
-                    // 美白
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("美白: \(Int(viewModel.beautyConfig.whitening * 100))%")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.8))
-                        Slider(value: Binding(
-                            get: { viewModel.beautyConfig.whitening },
-                            set: { viewModel.updateBeautyWhitening($0) }
-                        ), in: 0...1, step: 0.01)
-                        .tint(.white)
-                    }
+                    Text("点击「添加」创建分身")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.6))
                     
-                    // 锐化
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("锐化: \(Int(viewModel.beautyConfig.sharpness * 100))%")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.8))
-                        Slider(value: Binding(
-                            get: { viewModel.beautyConfig.sharpness },
-                            set: { viewModel.updateBeautySharpness($0) }
-                        ), in: 0...1, step: 0.01)
-                        .tint(.white)
+                    Text("拖动红点移动分身位置")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.4))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(viewModel.clones) { clone in
+                        cloneItemView(clone: clone)
+                    }
+                }
+                
+                // 清除所有按钮
+                Button {
+                    viewModel.removeAllClones()
+                } label: {
+                    HStack {
+                        Image(systemName: "trash")
+                        Text("清除所有分身")
+                    }
+                    .font(.system(size: 12))
+                    .foregroundColor(.red.opacity(0.8))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.red.opacity(0.1))
                     }
                 }
             }
+        }
+    }
+    
+    // 单个分身项视图
+    private func cloneItemView(clone: CloneInstance) -> some View {
+        let isSelected = viewModel.selectedCloneId == clone.id
+        
+        return HStack(spacing: 8) {
+            // 选中指示器
+            Circle()
+                .fill(isSelected ? Color.blue : Color.white.opacity(0.3))
+                .frame(width: 8, height: 8)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text("分身 #\(viewModel.clones.firstIndex(where: { $0.id == clone.id })! + 1)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white)
+                
+                Text("缩放: \(String(format: "%.0f", clone.scale * 100))%")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+            
+            Spacer()
+            
+            // 删除按钮
+            Button {
+                viewModel.removeClone(id: clone.id)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(.white.opacity(0.5))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isSelected ? Color.blue.opacity(0.2) : Color.white.opacity(0.05))
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            viewModel.selectClone(id: clone.id)
         }
     }
     
@@ -186,8 +253,8 @@ struct SideControlPanelView: View {
         
         // 根据选中的类别显示对应的控制面板
         switch category {
-        case .beauty:
-            showBeautyControls = true
+        case .clone:
+            showCloneControls = true
         case .sticker:
             showStickerControls = true
         case .filter:
@@ -197,11 +264,9 @@ struct SideControlPanelView: View {
     
     private func hideAllControls() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            showBeautyControls = false
+            showCloneControls = false
             showStickerControls = false
             showFilterControls = false
         }
     }
 }
-
-

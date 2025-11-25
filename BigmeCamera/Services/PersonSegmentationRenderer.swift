@@ -13,7 +13,6 @@ final class PersonSegmentationRenderer {
     private let context = CIContext()
     private let request: VNGeneratePersonSegmentationRequest
     private let sequenceHandler = VNSequenceRequestHandler()
-    private let beautyService = BeautyService()
 
     // 性能与稳定性成员
     private var lastMaskBufferSize: CGSize = .zero
@@ -36,7 +35,7 @@ final class PersonSegmentationRenderer {
         request.outputPixelFormat = kCVPixelFormatType_OneComponent8
     }
 
-    func render(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint? = nil, beautyConfig: BeautyConfig = BeautyConfig()) -> RenderResult? {
+    func render(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint? = nil, clones: [CloneInstance] = []) -> RenderResult? {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return nil }
 
         request.qualityLevel = config.quality.requestLevel
@@ -118,17 +117,12 @@ final class PersonSegmentationRenderer {
             .cropped(to: cameraImage.extent)
 
         // --- 分离前景人物 ---
-        var personCutout = cameraImage
+        let personCutout = cameraImage
             .applyingFilter("CIBlendWithMask", parameters: [
                 kCIInputBackgroundImageKey: CIImage(color: .clear).cropped(to: cameraImage.extent),
                 kCIInputMaskImageKey: maskImage
             ])
             .cropped(to: cameraImage.extent)
-        
-        // --- 应用美颜效果（仅对人物区域） ---
-        if beautyConfig.isEnabled {
-            personCutout = beautyService.applyBeauty(to: personCutout, config: beautyConfig)
-        }
 
         // --- 纯背景，完全移除人物，绝无残影 ---
         // let backgroundOnly = cameraImage
@@ -139,15 +133,12 @@ final class PersonSegmentationRenderer {
         //     .cropped(to: cameraImage.extent)
 
         // --- 整张图生成超模糊版本（用于填补人物区域） ---
-        let small = cameraImage
-            .transformed(by: CGAffineTransform(scaleX: 0.4, y: 0.4))
-
-        let blurredSmall = small.applyingFilter("CIBoxBlur", parameters: [
-            kCIInputRadiusKey: 15   // radius 对 downscaled 会等效增大
-        ])
-
-        let ultraBlurred = blurredSmall
-            .transformed(by: CGAffineTransform(scaleX: 2.5, y: 2.5)) // 放回原图大小
+        // 【优化】使用 CILanczosScaleTransform 替代手动 transform，质量更好
+        // 同时减少缩放倍数，使用 0.25 和 4.0（整数倍效率更高）
+        let ultraBlurred = cameraImage
+            .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 0.25])
+            .applyingFilter("CIBoxBlur", parameters: [kCIInputRadiusKey: 10])
+            .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 4.0])
             .cropped(to: cameraImage.extent)
 
 
@@ -177,9 +168,22 @@ final class PersonSegmentationRenderer {
             targetRect: targetRect
         )
 
-        let composited = scaledPerson
+        // --- 先合成背景和主人物 ---
+        var composited = scaledPerson
             .composited(over: baseBackground)
             .cropped(to: targetRect)
+        
+        // --- 渲染分身（叠加在主人物之上） ---
+        for clone in clones {
+            let clonePerson = personCutout.scaledAndAnchored(
+                around: clone.center,
+                scale: clone.scale,
+                targetRect: targetRect
+            )
+            composited = clonePerson
+                .composited(over: composited)
+                .cropped(to: targetRect)
+        }
 
         guard let cgImage = context.createCGImage(composited, from: cameraImage.extent) else {
             return nil
@@ -191,61 +195,49 @@ final class PersonSegmentationRenderer {
     // MARK: - Mask 断帧保护辅助方法
     
     /// 计算前景像素比例，用于检测 mask 是否有效
-    /// 使用采样方法提高性能，避免遍历所有像素
+    /// 【优化】使用 CIAreaAverage 在 GPU 上直接计算平均亮度，避免 CPU 遍历像素
     private func calculateForegroundRatio(maskImage: CIImage) -> CGFloat {
-        // 将 mask 缩放到较小尺寸进行采样（例如 64x64），提高性能
-        let sampleSize = CGSize(width: 64, height: 64)
-        let sampledMask = maskImage
-            .transformed(by: CGAffineTransform(
-                scaleX: sampleSize.width / maskImage.extent.width,
-                y: sampleSize.height / maskImage.extent.height
-            ))
-            .cropped(to: CGRect(origin: .zero, size: sampleSize))
+        // 使用 CIAreaAverage 滤镜在 GPU 上计算整个 mask 的平均亮度
+        // 这比创建 CGImage 并遍历像素快得多
+        let averageFilter = CIFilter(name: "CIAreaAverage", parameters: [
+            kCIInputImageKey: maskImage,
+            kCIInputExtentKey: CIVector(cgRect: maskImage.extent)
+        ])
         
-        guard let cgMask = context.createCGImage(sampledMask, from: sampledMask.extent) else {
+        guard let outputImage = averageFilter?.outputImage else {
             return 0
         }
         
-        let width = cgMask.width
-        let height = cgMask.height
-        let totalPixels = width * height
+        // 渲染 1x1 像素结果
+        var pixel = [UInt8](repeating: 0, count: 4)
+        context.render(outputImage,
+                      toBitmap: &pixel,
+                      rowBytes: 4,
+                      bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                      format: .RGBA8,
+                      colorSpace: CGColorSpaceCreateDeviceRGB())
         
-        guard totalPixels > 0 else { return 0 }
-        
-        // 创建数据提供者
-        guard let dataProvider = cgMask.dataProvider,
-              let data = dataProvider.data else {
-            return 0
-        }
-        
-        let bytes = CFDataGetBytePtr(data)
-        guard bytes != nil else { return 0 }
-        
-        // 统计前景像素（值 > 128 的像素）
-        var foregroundCount = 0
-        for y in 0..<height {
-            for x in 0..<width {
-                let index = y * width + x
-                if bytes![index] > 128 {
-                    foregroundCount += 1
-                }
-            }
-        }
-        
-        return CGFloat(foregroundCount) / CGFloat(totalPixels)
+        // 返回平均亮度作为前景比例的近似值
+        // 对于单通道 mask，R/G/B 值相同，取第一个即可
+        return CGFloat(pixel[0]) / 255.0
     }
     
     /// 混合当前 mask 和上一帧的有效 mask，实现平滑过渡
+    /// 【优化】真正实现 mask 混合，使用 CIMix 滤镜在 GPU 上完成
     private func blendMasks(current: CIImage, previous: CIImage, fadeFactor: CGFloat) -> CIImage {
-        // 使用加权混合：fadeFactor 越大，上一帧 mask 的权重越高
         // fadeFactor: 0.0 = 完全使用当前, 1.0 = 完全使用上一帧
         let previousWeight = min(fadeFactor, 0.8)  // 最多80%权重给上一帧
-        let currentWeight = 1.0 - previousWeight
         
-        // 使用 CIBlendWithAlphaMask 或简单的加权混合
-        // 这里使用更简单的方法：直接使用上一帧的 mask（因为当前 mask 已经无效）
-        // 但可以添加轻微的时间衰减
-        return previous
+        // 确保两个 mask 尺寸一致
+        let resizedPrevious = previous.resize(to: current.extent.size)
+        
+        // 使用 CIMix 滤镜进行加权混合（GPU 加速）
+        let blended = current.applyingFilter("CIMix", parameters: [
+            kCIInputBackgroundImageKey: resizedPrevious,
+            kCIInputAmountKey: previousWeight
+        ])
+        
+        return blended.cropped(to: current.extent)
     }
 }
 

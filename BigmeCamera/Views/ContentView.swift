@@ -63,9 +63,8 @@ struct ContentView: View {
                     .padding(.trailing)
                 }
                 .overlay {
-                    // 质心点可视化
-                    if let center = viewModel.personCenter,
-                       let frame = viewModel.renderedFrame,
+                    // 质心点可视化（主人物 + 分身）
+                    if let frame = viewModel.renderedFrame,
                        viewModel.isSessionRunning {
                         GeometryReader { geometry in
                             let imageSize = CGSize(width: frame.width, height: frame.height)
@@ -77,36 +76,56 @@ struct ContentView: View {
                             let offsetX = (scaledSize.width - viewSize.width) / 2
                             let offsetY = (scaledSize.height - viewSize.height) / 2
                             
-                            // 将质心坐标映射到屏幕坐标
-                            // 注意：渲染器返回的 center 是基于 CIImage 坐标系（左下角原点）
-                            // 但 CGImage 显示时使用 UIKit 坐标系（左上角原点），需要翻转 y 轴
-                            let uiKitY = imageSize.height - center.y
-                            let screenX = center.x * scale - offsetX
-                            let screenY = uiKitY * scale - offsetY
-                            
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 8, height: 8)
-                                .overlay {
-                                    Circle()
-                                        .stroke(Color.white, lineWidth: 2)
-                                        .frame(width: 16, height: 16)
-                                }
+                            // 主人物质心
+                            if let center = viewModel.personCenter {
+                                let uiKitY = imageSize.height - center.y
+                                let screenX = center.x * scale - offsetX
+                                let screenY = uiKitY * scale - offsetY
+                                
+                                CenterPointView(
+                                    color: .red,
+                                    isSelected: viewModel.selectedCloneId == nil,
+                                    label: "主"
+                                )
                                 .position(x: screenX, y: screenY)
                                 .highPriorityGesture(
                                     DragGesture(minimumDistance: 0)
                                         .onChanged { value in
-                                            // 将拖动位置转换为图像坐标（UIKit 坐标系）
+                                            viewModel.selectClone(id: nil)
                                             let imageX = (value.location.x + offsetX) / scale
                                             let imageY = (value.location.y + offsetY) / scale
-                                            // 注意：CGImage 使用 UIKit 坐标系（左上角原点），但 Core Image 使用左下角原点
-                                            // 由于渲染器最终输出 CGImage，我们需要确保坐标一致
-                                            // 但实际渲染时使用的是 CIImage 坐标系，所以需要翻转 y 轴
                                             let flippedY = imageSize.height - imageY
                                             let imagePoint = CGPoint(x: imageX, y: flippedY)
                                             viewModel.updateManualPersonCenter(imagePoint, imageSize: imageSize)
                                         }
                                 )
+                            }
+                            
+                            // 分身质心
+                            ForEach(viewModel.clones) { clone in
+                                let uiKitY = imageSize.height - clone.center.y
+                                let screenX = clone.center.x * scale - offsetX
+                                let screenY = uiKitY * scale - offsetY
+                                let cloneIndex = viewModel.clones.firstIndex(where: { $0.id == clone.id }) ?? 0
+                                
+                                CenterPointView(
+                                    color: .blue,
+                                    isSelected: viewModel.selectedCloneId == clone.id,
+                                    label: "\(cloneIndex + 1)"
+                                )
+                                .position(x: screenX, y: screenY)
+                                .highPriorityGesture(
+                                    DragGesture(minimumDistance: 0)
+                                        .onChanged { value in
+                                            viewModel.selectClone(id: clone.id)
+                                            let imageX = (value.location.x + offsetX) / scale
+                                            let imageY = (value.location.y + offsetY) / scale
+                                            let flippedY = imageSize.height - imageY
+                                            let imagePoint = CGPoint(x: imageX, y: flippedY)
+                                            viewModel.updateCloneCenter(id: clone.id, center: imagePoint, imageSize: imageSize)
+                                        }
+                                )
+                            }
                         }
                     }
                 }
@@ -197,6 +216,41 @@ struct ContentView: View {
         }
         .onDisappear {
             viewModel.onDisappear()
+        }
+    }
+}
+
+// MARK: - 质心点视图组件
+
+struct CenterPointView: View {
+    let color: Color
+    let isSelected: Bool
+    let label: String
+    
+    var body: some View {
+        ZStack {
+            // 外圈（选中时显示）
+            if isSelected {
+                Circle()
+                    .stroke(color.opacity(0.5), lineWidth: 2)
+                    .frame(width: 32, height: 32)
+            }
+            
+            // 中心点
+            Circle()
+                .fill(color)
+                .frame(width: 12, height: 12)
+                .overlay {
+                    Circle()
+                        .stroke(Color.white, lineWidth: 2)
+                        .frame(width: 18, height: 18)
+                }
+            
+            // 标签
+            Text(label)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundColor(.white)
+                .offset(y: 20)
         }
     }
 }

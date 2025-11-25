@@ -2,6 +2,19 @@ import Foundation
 import CoreGraphics
 import Vision
 
+/// 分身数据模型
+struct CloneInstance: Identifiable, Equatable {
+    let id: UUID
+    var center: CGPoint  // 分身质心位置（CIImage 坐标系）
+    var scale: CGFloat   // 分身缩放比例
+    
+    init(id: UUID = UUID(), center: CGPoint, scale: CGFloat = 1.0) {
+        self.id = id
+        self.center = center
+        self.scale = scale
+    }
+}
+
 struct SegmentationConfig: Equatable {
     enum Quality: String, CaseIterable, Identifiable {
         case fast

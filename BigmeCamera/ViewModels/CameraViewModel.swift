@@ -15,10 +15,11 @@ final class CameraViewModel: ObservableObject {
     @Published var currentFPS: Double = 0.0
     @Published var personCenter: CGPoint?
     
-    // 美颜相关
-    @Published var beautyConfig = BeautyConfig()
+    // 分身相关
+    @Published var clones: [CloneInstance] = []
+    @Published var selectedCloneId: UUID?  // 当前选中的分身 ID
     
-    // 手动质心管理
+    // 手动质心管理（主人物）
     @Published var isManualCenterMode: Bool = false
     private var manualPersonCenter: CGPoint?
     
@@ -28,7 +29,6 @@ final class CameraViewModel: ObservableObject {
     
     private let cameraService = CameraService()
     nonisolated(unsafe) private let renderer = PersonSegmentationRenderer()
-    nonisolated(unsafe) private let beautyService = BeautyService()
     private let renderQueue = DispatchQueue(label: "bigme.segmentation.queue")
     
     // 帧率计算相关
@@ -44,8 +44,8 @@ final class CameraViewModel: ObservableObject {
                 let currentConfig = self.config
                 let manualCenter = self.manualPersonCenter
                 let isManual = self.isManualCenterMode
-                let currentBeautyConfig = self.beautyConfig
-                self.handle(sampleBuffer: sampleBuffer, config: currentConfig, customCenter: isManual ? manualCenter : nil, beautyConfig: currentBeautyConfig)
+                let currentClones = self.clones
+                self.handle(sampleBuffer: sampleBuffer, config: currentConfig, customCenter: isManual ? manualCenter : nil, clones: currentClones)
             }
         }
     }
@@ -177,7 +177,7 @@ final class CameraViewModel: ObservableObject {
         }
     }
 
-    nonisolated private func handle(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint?, beautyConfig: BeautyConfig) {
+    nonisolated private func handle(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint?, clones: [CloneInstance]) {
         let renderer = self.renderer
         let currentTime = CFAbsoluteTimeGetCurrent()
         renderQueue.async {
@@ -185,7 +185,7 @@ final class CameraViewModel: ObservableObject {
                 sampleBuffer: sampleBuffer,
                 config: config,
                 customCenter: customCenter,
-                beautyConfig: beautyConfig
+                clones: clones
             ) else {
                 return
             }
@@ -202,22 +202,56 @@ final class CameraViewModel: ObservableObject {
         }
     }
     
-    // MARK: - 美颜相关方法
+    // MARK: - 分身管理方法
     
-    func updateBeautySmoothness(_ value: CGFloat) {
-        beautyConfig.smoothness = value
+    /// 添加一个新分身
+    func addClone() {
+        guard let currentCenter = personCenter else { return }
+        // 新分身默认在主人物右侧偏移一定距离
+        let offset: CGFloat = 200
+        let newCenter = CGPoint(x: currentCenter.x + offset, y: currentCenter.y)
+        let newClone = CloneInstance(center: newCenter, scale: config.personScale)
+        clones.append(newClone)
+        selectedCloneId = newClone.id
     }
     
-    func updateBeautyWhitening(_ value: CGFloat) {
-        beautyConfig.whitening = value
+    /// 移除指定分身
+    func removeClone(id: UUID) {
+        clones.removeAll { $0.id == id }
+        if selectedCloneId == id {
+            selectedCloneId = clones.last?.id
+        }
     }
     
-    func updateBeautySharpness(_ value: CGFloat) {
-        beautyConfig.sharpness = value
+    /// 移除所有分身
+    func removeAllClones() {
+        clones.removeAll()
+        selectedCloneId = nil
     }
     
-    func toggleBeauty() {
-        beautyConfig.isEnabled.toggle()
+    /// 更新分身位置
+    func updateCloneCenter(id: UUID, center: CGPoint, imageSize: CGSize) {
+        guard let index = clones.firstIndex(where: { $0.id == id }) else { return }
+        // 确保质心在图像范围内
+        let clampedX = max(0, min(center.x, imageSize.width))
+        let clampedY = max(0, min(center.y, imageSize.height))
+        clones[index].center = CGPoint(x: clampedX, y: clampedY)
+    }
+    
+    /// 更新分身缩放
+    func updateCloneScale(id: UUID, scale: CGFloat) {
+        guard let index = clones.firstIndex(where: { $0.id == id }) else { return }
+        clones[index].scale = scale
+    }
+    
+    /// 选中分身
+    func selectClone(id: UUID?) {
+        selectedCloneId = id
+    }
+    
+    /// 获取分身数量
+    var cloneCount: Int {
+        clones.count
     }
     
     private func updateFPS(currentTime: CFAbsoluteTime) {
