@@ -49,14 +49,18 @@ struct ContentView: View {
                 }
                 .overlay(alignment: .topTrailing) {
                     VStack(alignment: .trailing) {
-                        if let success = viewModel.lastSaveSuccess {
-                            SaveStatusBadge(isSuccess: success)
-                        }
+                        // 保存进度指示器
                         if viewModel.isSaving {
-                            ProgressView()
-                                .padding(8)
-                                .background(.ultraThinMaterial,
-                                            in: Capsule(style: .continuous))
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .tint(.white)
+                                Text("保存中...")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial, in: Capsule(style: .continuous))
                         }
                     }
                     .padding(.top, 60)
@@ -155,14 +159,18 @@ struct ContentView: View {
                     }
                 }
 
-            // 左侧控制列
-            HStack {
-                if viewModel.authorizationStatus == .authorized && viewModel.isSessionRunning {
-                    SideControlPanelView(viewModel: viewModel)
-                        .padding(.leading, 8)
-                        .padding(.top, 100)
+            // 左侧控制列（只占据上半部分，不遮挡底部控制栏）
+            VStack {
+                HStack {
+                    if viewModel.authorizationStatus == .authorized && viewModel.isSessionRunning {
+                        SideControlPanelView(viewModel: viewModel)
+                            .padding(.leading, 8)
+                            .padding(.top, 100)
+                    }
+                    Spacer()
                 }
                 Spacer()
+                    .frame(height: 180) // 为底部控制栏预留空间
             }
             
             VStack {
@@ -200,6 +208,13 @@ struct ContentView: View {
                             offsetY: offsetY
                         )
                     }
+                }
+            }
+            
+            // 保存成功/失败庆祝动画
+            if viewModel.showSaveCelebration, let success = viewModel.lastSaveSuccess {
+                SaveSuccessCelebrationView(isSuccess: success) {
+                    viewModel.dismissSaveCelebration()
                 }
             }
         }

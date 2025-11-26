@@ -70,35 +70,103 @@ struct ControlPanelView: View {
                 .frame(maxWidth: 200)
                 .colorScheme(.dark)
                 
-                // 底部按钮行：拍照按钮（中央）+ 切换摄像头按钮（右下角）
+                // 录像时显示时长
+                if viewModel.isRecording {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 10, height: 10)
+                        
+                        Text(viewModel.formattedRecordingDuration)
+                            .font(.system(size: 16, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background {
+                        Capsule()
+                            .fill(Color.black.opacity(0.5))
+                    }
+                }
+                
+                // 底部按钮行：拍照/录像切换（左）+ 拍照/录像按钮（中央）+ 切换摄像头按钮（右）
                 HStack {
-                    Spacer()
-                    // 左侧占位，与右侧切换按钮宽度相同，确保拍照按钮居中
-                    Spacer()
-                        .frame(width: 60)
-                    
-                    // 中间：拍照按钮（大白色圆点，类似 iPhone 原生相机）
+                    // 左侧：拍照/录像切换按钮
                     Button {
-                        viewModel.capturePhoto()
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            viewModel.toggleCaptureMode()
+                        }
                     } label: {
-                        ZStack {
-                            // 外圈（细边框）
+                        VStack(spacing: 4) {
+                            Image(systemName: viewModel.captureMode == .photo ? "camera.fill" : "video.fill")
+                                .font(.system(size: 22))
+                                .foregroundColor(.white)
+                            
+                            Text(viewModel.captureMode.rawValue)
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+                        .frame(width: 60, height: 60)
+                        .background {
                             Circle()
-                                .stroke(Color.white, lineWidth: 5)
-                                .frame(width: 76, height: 76)
-                            // 内圈（实心白色圆点）
-                            Circle()
-                                .fill(Color.white)
-                                .frame(width: 66, height: 66)
+                                .fill(Color.white.opacity(0.2))
                         }
                     }
-                    .disabled(viewModel.renderedFrame == nil)
-                    .opacity(viewModel.renderedFrame == nil ? 0.5 : 1.0)
-                    .scaleEffect(viewModel.isSaving ? 0.9 : 1.0)
-                    .animation(.easeInOut(duration: 0.1), value: viewModel.isSaving)
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.isRecording)
+                    .opacity(viewModel.isRecording ? 0.5 : 1.0)
                     
                     Spacer()
-                    // 右侧：切换摄像头按钮（循环图标）
+                    
+                    // 中间：拍照/录像按钮
+                    if viewModel.captureMode == .photo {
+                        // 拍照按钮（白色圆点）
+                        Button {
+                            viewModel.capturePhoto()
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .stroke(Color.white, lineWidth: 5)
+                                    .frame(width: 76, height: 76)
+                                Circle()
+                                    .fill(Color.white)
+                                    .frame(width: 66, height: 66)
+                            }
+                        }
+                        .disabled(viewModel.renderedFrame == nil)
+                        .opacity(viewModel.renderedFrame == nil ? 0.5 : 1.0)
+                        .scaleEffect(viewModel.isSaving ? 0.9 : 1.0)
+                        .animation(.easeInOut(duration: 0.1), value: viewModel.isSaving)
+                    } else {
+                        // 录像按钮（红色圆点，录制中变方形）
+                        Button {
+                            viewModel.toggleRecording()
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .stroke(Color.white, lineWidth: 5)
+                                    .frame(width: 76, height: 76)
+                                
+                                if viewModel.isRecording {
+                                    // 录制中：红色方形（停止按钮）
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(Color.red)
+                                        .frame(width: 30, height: 30)
+                                } else {
+                                    // 未录制：红色圆形
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 66, height: 66)
+                                }
+                            }
+                        }
+                        .disabled(viewModel.renderedFrame == nil)
+                        .opacity(viewModel.renderedFrame == nil ? 0.5 : 1.0)
+                    }
+                    
+                    Spacer()
+                    
+                    // 右侧：切换摄像头按钮
                     Button {
                         viewModel.switchCamera()
                     } label: {
@@ -112,6 +180,8 @@ struct ControlPanelView: View {
                             }
                     }
                     .buttonStyle(.plain)
+                    .disabled(viewModel.isRecording)
+                    .opacity(viewModel.isRecording ? 0.5 : 1.0)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 20)

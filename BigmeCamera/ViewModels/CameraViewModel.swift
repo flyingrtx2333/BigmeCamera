@@ -10,6 +10,7 @@ final class CameraViewModel: ObservableObject {
     @Published var isSessionRunning = false
     @Published var isSaving = false
     @Published var lastSaveSuccess: Bool?
+    @Published var showSaveCelebration = false
     @Published var config = SegmentationConfig()
     @Published var cameraPosition: AVCaptureDevice.Position = .front
     @Published var currentFPS: Double = 0.0
@@ -26,6 +27,17 @@ final class CameraViewModel: ObservableObject {
     // 滤镜相关
     @Published var currentFilter: FilterStyle = .none
     @Published var isFilterModelLoading: Bool = false
+    
+    // 拍照/录像模式
+    enum CaptureMode: String {
+        case photo = "拍照"
+        case video = "录像"
+    }
+    @Published var captureMode: CaptureMode = .photo
+    @Published var isRecording: Bool = false
+    @Published var recordingDuration: TimeInterval = 0
+    
+    private let videoRecordingService = VideoRecordingService()
     
     // 手动质心管理（主人物）
     @Published var isManualCenterMode: Bool = false
@@ -56,6 +68,36 @@ final class CameraViewModel: ObservableObject {
                 let currentStickers = self.stickers
                 let filter = self.currentFilter
                 self.handle(sampleBuffer: sampleBuffer, config: currentConfig, customCenter: isManual ? manualCenter : nil, clones: currentClones, stickers: currentStickers, filterStyle: filter)
+            }
+        }
+        
+        // 设置录像服务回调
+        setupVideoRecordingCallbacks()
+    }
+    
+    private func setupVideoRecordingCallbacks() {
+        videoRecordingService.onRecordingStateChanged = { [weak self] isRecording in
+            Task { @MainActor in
+                self?.isRecording = isRecording
+                if !isRecording {
+                    self?.recordingDuration = 0
+                }
+            }
+        }
+        
+        videoRecordingService.onDurationUpdated = { [weak self] duration in
+            Task { @MainActor in
+                self?.recordingDuration = duration
+            }
+        }
+        
+        videoRecordingService.onRecordingFinished = { [weak self] success, error in
+            Task { @MainActor in
+                self?.lastSaveSuccess = success
+                self?.showSaveCelebration = true
+                if let error = error {
+                    print("❌ 录像保存失败: \(error.localizedDescription)")
+                }
             }
         }
     }
@@ -164,6 +206,7 @@ final class CameraViewModel: ObservableObject {
         guard let frame = renderedFrame else { return }
         isSaving = true
         lastSaveSuccess = nil
+        showSaveCelebration = false
         
         let uiImage = UIImage(cgImage: frame)
         
@@ -172,6 +215,7 @@ final class CameraViewModel: ObservableObject {
                 DispatchQueue.main.async {
                     self?.isSaving = false
                     self?.lastSaveSuccess = false
+                    self?.showSaveCelebration = true
                 }
                 return
             }
@@ -182,14 +226,26 @@ final class CameraViewModel: ObservableObject {
                 DispatchQueue.main.async {
                     self?.isSaving = false
                     self?.lastSaveSuccess = success && error == nil
+                    self?.showSaveCelebration = true
                 }
             }
         }
     }
+    
+    /// 关闭保存庆祝动画
+    func dismissSaveCelebration() {
+        showSaveCelebration = false
+        lastSaveSuccess = nil
+    }
 
     nonisolated private func handle(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint?, clones: [CloneInstance], stickers: [StickerInstance], filterStyle: FilterStyle) {
         let renderer = self.renderer
+        let videoService = self.videoRecordingService
         let currentTime = CFAbsoluteTimeGetCurrent()
+        
+        // 获取时间戳用于录像
+        let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        
         renderQueue.async {
             guard let result = renderer.render(
                 sampleBuffer: sampleBuffer,
@@ -200,6 +256,11 @@ final class CameraViewModel: ObservableObject {
                 filterStyle: filterStyle
             ) else {
                 return
+            }
+            
+            // 如果正在录像，添加帧
+            if videoService.recordingState {
+                videoService.appendFrame(result.image, at: presentationTime)
             }
 
             Task { @MainActor [weak self] in
@@ -357,6 +418,60 @@ final class CameraViewModel: ObservableObject {
     /// 获取当前滤镜是否可用
     var isCurrentFilterReady: Bool {
         currentFilter == .none || StyleService.shared.isModelLoaded(for: currentFilter)
+    }
+    
+    // MARK: - 拍照/录像模式切换
+    
+    /// 切换拍照/录像模式
+    func toggleCaptureMode() {
+        // 如果正在录像，先停止
+        if isRecording {
+            stopRecording()
+        }
+        captureMode = captureMode == .photo ? .video : .photo
+    }
+    
+    /// 设置拍照模式
+    func setPhotoMode() {
+        if isRecording {
+            stopRecording()
+        }
+        captureMode = .photo
+    }
+    
+    /// 设置录像模式
+    func setVideoMode() {
+        captureMode = .video
+    }
+    
+    // MARK: - 录像控制
+    
+    /// 开始录像
+    func startRecording() {
+        guard let frame = renderedFrame else { return }
+        let videoSize = CGSize(width: frame.width, height: frame.height)
+        videoRecordingService.startRecording(videoSize: videoSize)
+    }
+    
+    /// 停止录像
+    func stopRecording() {
+        videoRecordingService.stopRecording()
+    }
+    
+    /// 切换录像状态
+    func toggleRecording() {
+        if isRecording {
+            stopRecording()
+        } else {
+            startRecording()
+        }
+    }
+    
+    /// 格式化录像时长
+    var formattedRecordingDuration: String {
+        let minutes = Int(recordingDuration) / 60
+        let seconds = Int(recordingDuration) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
     }
     
     private func updateFPS(currentTime: CFAbsoluteTime) {
