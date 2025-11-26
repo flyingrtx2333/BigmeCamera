@@ -3,6 +3,7 @@ import CoreGraphics
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import Vision
+import UIKit
 
 struct RenderResult {
     let image: CGImage
@@ -35,7 +36,13 @@ final class PersonSegmentationRenderer {
         request.outputPixelFormat = kCVPixelFormatType_OneComponent8
     }
 
-    func render(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint? = nil, clones: [CloneInstance] = []) -> RenderResult? {
+    // 贴纸图像缓存
+    private var stickerImageCache: [StickerType: CIImage] = [:]
+    
+    // 滤镜服务引用
+    private let styleService = StyleService.shared
+    
+    func render(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint? = nil, clones: [CloneInstance] = [], stickers: [StickerInstance] = [], filterStyle: FilterStyle = .none) -> RenderResult? {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return nil }
 
         request.qualityLevel = config.quality.requestLevel
@@ -184,12 +191,97 @@ final class PersonSegmentationRenderer {
                 .composited(over: composited)
                 .cropped(to: targetRect)
         }
+        
+        // --- 渲染贴纸（叠加在最上层） ---
+        for sticker in stickers {
+            if let stickerImage = getStickerImage(for: sticker.type) {
+                // 计算目标贴纸大小
+                let targetSize: CGFloat = 120 * sticker.scale
+                let originalSize = max(stickerImage.extent.width, stickerImage.extent.height)
+                let stickerScale = targetSize / originalSize
+                
+                // 先将贴纸原点移到中心，然后缩放和旋转，最后移到目标位置
+                let originalCenter = CGPoint(
+                    x: stickerImage.extent.midX,
+                    y: stickerImage.extent.midY
+                )
+                
+                // 变换序列：移到原点 -> 缩放 -> 旋转 -> 移到目标位置
+                let toOrigin = CGAffineTransform(translationX: -originalCenter.x, y: -originalCenter.y)
+                let scale = CGAffineTransform(scaleX: stickerScale, y: stickerScale)
+                let rotate = CGAffineTransform(rotationAngle: sticker.rotation)
+                let toTarget = CGAffineTransform(translationX: sticker.center.x, y: sticker.center.y)
+                
+                let finalTransform = toOrigin
+                    .concatenating(scale)
+                    .concatenating(rotate)
+                    .concatenating(toTarget)
+                
+                let positionedSticker = stickerImage.transformed(by: finalTransform)
+                
+                composited = positionedSticker
+                    .composited(over: composited)
+                    .cropped(to: targetRect)
+            }
+        }
+        
+        // --- 应用滤镜风格转换 ---
+        if filterStyle != .none {
+            composited = styleService.applyStyle(to: composited, style: filterStyle)
+                .cropped(to: targetRect)
+        }
 
         guard let cgImage = context.createCGImage(composited, from: cameraImage.extent) else {
             return nil
         }
 
         return RenderResult(image: cgImage, personCenter: personCenter)
+    }
+    
+    // MARK: - 贴纸渲染辅助方法
+    
+    /// 获取贴纸图像（带缓存）
+    private func getStickerImage(for type: StickerType) -> CIImage? {
+        // 检查缓存
+        if let cached = stickerImageCache[type] {
+            return cached
+        }
+        
+        // 使用 SF Symbols 生成贴纸图像
+        let config = UIImage.SymbolConfiguration(pointSize: 100, weight: .bold)
+        guard let symbolImage = UIImage(systemName: type.rawValue, withConfiguration: config) else {
+            return nil
+        }
+        
+        // 获取贴纸颜色
+        let color = type.color
+        let tintColor = UIColor(red: color.r, green: color.g, blue: color.b, alpha: 1.0)
+        
+        // 使用 UIGraphicsImageRenderer 正确渲染带透明背景的贴纸
+        let imageSize = CGSize(width: 120, height: 120)
+        let renderer = UIGraphicsImageRenderer(size: imageSize)
+        
+        let renderedImage = renderer.image { ctx in
+            // 计算居中位置
+            let symbolSize = symbolImage.size
+            let x = (imageSize.width - symbolSize.width) / 2
+            let y = (imageSize.height - symbolSize.height) / 2
+            
+            // 设置着色
+            tintColor.set()
+            
+            // 绘制 symbol
+            symbolImage.withTintColor(tintColor, renderingMode: .alwaysTemplate)
+                .draw(at: CGPoint(x: x, y: y))
+        }
+        
+        guard let cgImage = renderedImage.cgImage else {
+            return nil
+        }
+        
+        let ciImage = CIImage(cgImage: cgImage)
+        stickerImageCache[type] = ciImage
+        return ciImage
     }
     
     // MARK: - Mask 断帧保护辅助方法

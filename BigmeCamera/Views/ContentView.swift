@@ -126,6 +126,31 @@ struct ContentView: View {
                                         }
                                 )
                             }
+                            
+                            // 贴纸控制点
+                            ForEach(viewModel.stickers) { sticker in
+                                let uiKitY = imageSize.height - sticker.center.y
+                                let screenX = sticker.center.x * scale - offsetX
+                                let screenY = uiKitY * scale - offsetY
+                                
+                                StickerControlView(
+                                    sticker: sticker,
+                                    isSelected: viewModel.selectedStickerId == sticker.id,
+                                    screenScale: scale
+                                )
+                                .position(x: screenX, y: screenY)
+                                .highPriorityGesture(
+                                    DragGesture(minimumDistance: 0)
+                                        .onChanged { value in
+                                            viewModel.selectSticker(id: sticker.id)
+                                            let imageX = (value.location.x + offsetX) / scale
+                                            let imageY = (value.location.y + offsetY) / scale
+                                            let flippedY = imageSize.height - imageY
+                                            let imagePoint = CGPoint(x: imageX, y: flippedY)
+                                            viewModel.updateStickerCenter(id: sticker.id, center: imagePoint, imageSize: imageSize)
+                                        }
+                                )
+                            }
                         }
                     }
                 }
@@ -251,6 +276,47 @@ struct CenterPointView: View {
                 .font(.system(size: 8, weight: .bold))
                 .foregroundColor(.white)
                 .offset(y: 20)
+        }
+    }
+}
+
+// MARK: - 贴纸控制视图组件
+
+struct StickerControlView: View {
+    let sticker: StickerInstance
+    let isSelected: Bool
+    let screenScale: CGFloat
+    
+    var body: some View {
+        let stickerColor = Color(
+            red: sticker.type.color.r,
+            green: sticker.type.color.g,
+            blue: sticker.type.color.b
+        )
+        
+        ZStack {
+            // 选中边框
+            if isSelected {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.orange, lineWidth: 2)
+                    .frame(width: 60, height: 60)
+            }
+            
+            // 拖动指示器（小圆点）
+            Circle()
+                .fill(isSelected ? Color.orange : Color.white.opacity(0.6))
+                .frame(width: 16, height: 16)
+                .overlay {
+                    Circle()
+                        .stroke(Color.white, lineWidth: 2)
+                        .frame(width: 20, height: 20)
+                }
+            
+            // 贴纸图标（小预览）
+            Image(systemName: sticker.type.rawValue)
+                .font(.system(size: 12))
+                .foregroundColor(stickerColor)
+                .offset(x: 16, y: -16)
         }
     }
 }

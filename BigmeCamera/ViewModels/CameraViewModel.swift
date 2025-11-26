@@ -19,6 +19,14 @@ final class CameraViewModel: ObservableObject {
     @Published var clones: [CloneInstance] = []
     @Published var selectedCloneId: UUID?  // 当前选中的分身 ID
     
+    // 贴纸相关
+    @Published var stickers: [StickerInstance] = []
+    @Published var selectedStickerId: UUID?  // 当前选中的贴纸 ID
+    
+    // 滤镜相关
+    @Published var currentFilter: FilterStyle = .none
+    @Published var isFilterModelLoading: Bool = false
+    
     // 手动质心管理（主人物）
     @Published var isManualCenterMode: Bool = false
     private var manualPersonCenter: CGPoint?
@@ -45,7 +53,9 @@ final class CameraViewModel: ObservableObject {
                 let manualCenter = self.manualPersonCenter
                 let isManual = self.isManualCenterMode
                 let currentClones = self.clones
-                self.handle(sampleBuffer: sampleBuffer, config: currentConfig, customCenter: isManual ? manualCenter : nil, clones: currentClones)
+                let currentStickers = self.stickers
+                let filter = self.currentFilter
+                self.handle(sampleBuffer: sampleBuffer, config: currentConfig, customCenter: isManual ? manualCenter : nil, clones: currentClones, stickers: currentStickers, filterStyle: filter)
             }
         }
     }
@@ -177,7 +187,7 @@ final class CameraViewModel: ObservableObject {
         }
     }
 
-    nonisolated private func handle(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint?, clones: [CloneInstance]) {
+    nonisolated private func handle(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint?, clones: [CloneInstance], stickers: [StickerInstance], filterStyle: FilterStyle) {
         let renderer = self.renderer
         let currentTime = CFAbsoluteTimeGetCurrent()
         renderQueue.async {
@@ -185,7 +195,9 @@ final class CameraViewModel: ObservableObject {
                 sampleBuffer: sampleBuffer,
                 config: config,
                 customCenter: customCenter,
-                clones: clones
+                clones: clones,
+                stickers: stickers,
+                filterStyle: filterStyle
             ) else {
                 return
             }
@@ -252,6 +264,99 @@ final class CameraViewModel: ObservableObject {
     /// 获取分身数量
     var cloneCount: Int {
         clones.count
+    }
+    
+    // MARK: - 贴纸管理方法
+    
+    /// 添加贴纸
+    func addSticker(type: StickerType) {
+        guard let currentCenter = personCenter else { return }
+        // 新贴纸默认在人物上方
+        let newCenter = CGPoint(x: currentCenter.x, y: currentCenter.y + 150)
+        let newSticker = StickerInstance(type: type, center: newCenter, scale: 1.0)
+        stickers.append(newSticker)
+        selectedStickerId = newSticker.id
+    }
+    
+    /// 移除指定贴纸
+    func removeSticker(id: UUID) {
+        stickers.removeAll { $0.id == id }
+        if selectedStickerId == id {
+            selectedStickerId = stickers.last?.id
+        }
+    }
+    
+    /// 移除所有贴纸
+    func removeAllStickers() {
+        stickers.removeAll()
+        selectedStickerId = nil
+    }
+    
+    /// 更新贴纸位置
+    func updateStickerCenter(id: UUID, center: CGPoint, imageSize: CGSize) {
+        guard let index = stickers.firstIndex(where: { $0.id == id }) else { return }
+        let clampedX = max(0, min(center.x, imageSize.width))
+        let clampedY = max(0, min(center.y, imageSize.height))
+        stickers[index].center = CGPoint(x: clampedX, y: clampedY)
+    }
+    
+    /// 更新贴纸缩放
+    func updateStickerScale(id: UUID, scale: CGFloat) {
+        guard let index = stickers.firstIndex(where: { $0.id == id }) else { return }
+        stickers[index].scale = max(0.3, min(scale, 3.0))  // 限制缩放范围
+    }
+    
+    /// 更新贴纸旋转
+    func updateStickerRotation(id: UUID, rotation: CGFloat) {
+        guard let index = stickers.firstIndex(where: { $0.id == id }) else { return }
+        stickers[index].rotation = rotation
+    }
+    
+    /// 选中贴纸
+    func selectSticker(id: UUID?) {
+        selectedStickerId = id
+    }
+    
+    /// 获取贴纸数量
+    var stickerCount: Int {
+        stickers.count
+    }
+    
+    // MARK: - 滤镜管理方法
+    
+    /// 设置滤镜风格
+    func setFilter(_ style: FilterStyle) {
+        // 如果模型未加载，先预加载
+        if style != .none && !StyleService.shared.isModelLoaded(for: style) {
+            isFilterModelLoading = true
+            StyleService.shared.preloadModel(for: style)
+            
+            // 检查加载状态
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.checkFilterModelLoaded(style: style)
+            }
+        }
+        currentFilter = style
+    }
+    
+    /// 检查滤镜模型是否加载完成
+    private func checkFilterModelLoaded(style: FilterStyle) {
+        if StyleService.shared.isModelLoaded(for: style) {
+            isFilterModelLoading = false
+        } else if StyleService.shared.isModelLoading(for: style) {
+            // 继续等待
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.checkFilterModelLoaded(style: style)
+            }
+        } else {
+            // 加载失败
+            isFilterModelLoading = false
+        }
+    }
+    
+    /// 获取当前滤镜是否可用
+    var isCurrentFilterReady: Bool {
+        currentFilter == .none || StyleService.shared.isModelLoaded(for: currentFilter)
     }
     
     private func updateFPS(currentTime: CFAbsoluteTime) {
