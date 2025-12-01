@@ -151,9 +151,12 @@ struct SideControlPanelView: View {
                         .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.6))
                     
-                    Text("拖动红点移动分身位置")
-                        .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.4))
+                    VStack(spacing: 2) {
+                        Text("拖动红点移动分身位置")
+                        Text("点击📷可冻结快照")
+                    }
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.4))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
@@ -190,15 +193,39 @@ struct SideControlPanelView: View {
         let isSelected = viewModel.selectedCloneId == clone.id
         
         return HStack(spacing: 8) {
-            // 选中指示器
-            Circle()
-                .fill(isSelected ? Color.blue : Color.white.opacity(0.3))
-                .frame(width: 8, height: 8)
+            // 选中指示器（冻结时显示雪花图标）
+            ZStack {
+                Circle()
+                    .fill(isSelected ? Color.blue : Color.white.opacity(0.3))
+                    .frame(width: 8, height: 8)
+                    .opacity(clone.isFrozen ? 0 : 1)
+                
+                if clone.isFrozen {
+                    Image(systemName: "snowflake")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.cyan)
+                }
+            }
+            .frame(width: 12)
             
             VStack(alignment: .leading, spacing: 2) {
-                Text("分身 #\(viewModel.clones.firstIndex(where: { $0.id == clone.id })! + 1)")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white)
+                HStack(spacing: 4) {
+                    Text("分身 #\(viewModel.clones.firstIndex(where: { $0.id == clone.id })! + 1)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white)
+                    
+                    if clone.isFrozen {
+                        Text("已快照")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.cyan)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background {
+                                Capsule()
+                                    .fill(Color.cyan.opacity(0.2))
+                            }
+                    }
+                }
                 
                 Text("缩放: \(String(format: "%.0f", clone.scale * 100))%")
                     .font(.system(size: 10))
@@ -206,6 +233,16 @@ struct SideControlPanelView: View {
             }
             
             Spacer()
+            
+            // 快照/继续按钮
+            Button {
+                viewModel.toggleCloneFrozen(id: clone.id)
+            } label: {
+                Image(systemName: clone.isFrozen ? "play.circle.fill" : "camera.circle.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(clone.isFrozen ? .green : .cyan)
+            }
+            .buttonStyle(.plain)
             
             // 删除按钮
             Button {
@@ -220,7 +257,13 @@ struct SideControlPanelView: View {
         .padding(.vertical, 8)
         .background {
             RoundedRectangle(cornerRadius: 8)
-                .fill(isSelected ? Color.blue.opacity(0.2) : Color.white.opacity(0.05))
+                .fill(clone.isFrozen ? Color.cyan.opacity(0.15) : (isSelected ? Color.blue.opacity(0.2) : Color.white.opacity(0.05)))
+                .overlay {
+                    if clone.isFrozen {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.cyan.opacity(0.4), lineWidth: 1)
+                    }
+                }
         }
         .contentShape(Rectangle())
         .onTapGesture {

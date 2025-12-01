@@ -4,14 +4,33 @@ import CoreVideo
 import UIKit
 import Metal
 
+/// 模型配置结构体
+struct ModelConfig {
+    let modelName: String           // 模型文件名（不含扩展名）
+    let inputSize: CGSize           // 输入尺寸
+    let inputName: String           // 输入层名称
+    let outputName: String          // 输出层名称
+    
+    /// 默认配置（512x512，标准输入输出名称）
+    static func standard(modelName: String) -> ModelConfig {
+        return ModelConfig(
+            modelName: modelName,
+            inputSize: CGSize(width: 512, height: 512),
+            inputName: "image",
+            outputName: "stylizedImage"
+        )
+    }
+}
+
 /// 滤镜风格类型枚举
 enum FilterStyle: String, CaseIterable, Identifiable {
     case none = "原图"
     case sketch = "手绘"
+    case sketch2 = "手绘2"
+    case cartoon = "漫画"
     // 预留更多风格
     // case watercolor = "水彩"
     // case oilPainting = "油画"
-    // case cartoon = "卡通"
     // case anime = "动漫"
     
     var id: String { rawValue }
@@ -20,26 +39,38 @@ enum FilterStyle: String, CaseIterable, Identifiable {
         switch self {
         case .none: return "photo"
         case .sketch: return "pencil.and.outline"
+        case .sketch2: return "pencil.tip"
+        case .cartoon: return "book.pages"
         // case .watercolor: return "drop.fill"
         // case .oilPainting: return "paintbrush.fill"
-        // case .cartoon: return "face.smiling"
         // case .anime: return "sparkles"
         }
     }
     
     var displayName: String { rawValue }
     
-    /// 模型文件名（不含扩展名）
-    var modelName: String? {
+    /// 模型配置
+    var modelConfig: ModelConfig? {
         switch self {
         case .none: return nil
-        case .sketch: return "CameraStyleTransfer 2"
+        case .sketch: return .standard(modelName: "CameraStyleTransfer 2")
+        case .sketch2: return .standard(modelName: "CameraStyleTransferXianGao2")
+        case .cartoon: return ModelConfig(
+            modelName: "whiteboxcartoonization",
+            inputSize: CGSize(width: 1536, height: 1536),
+            inputName: "Placeholder",
+            outputName: "activation_out"
+        )
         // 预留更多模型
-        // case .watercolor: return "WatercolorStyle"
-        // case .oilPainting: return "OilPaintingStyle"
-        // case .cartoon: return "CartoonStyle"
-        // case .anime: return "AnimeStyle"
+        // case .watercolor: return .standard(modelName: "WatercolorStyle")
+        // case .oilPainting: return .standard(modelName: "OilPaintingStyle")
+        // case .anime: return .standard(modelName: "AnimeStyle")
         }
+    }
+    
+    /// 模型文件名（不含扩展名）- 保留兼容性
+    var modelName: String? {
+        return modelConfig?.modelName
     }
 }
 
@@ -63,8 +94,11 @@ final class StyleService {
     /// CIContext 用于图像转换（Metal 加速）
     private let ciContext: CIContext
     
-    /// 模型输入尺寸
-    private let modelInputSize = CGSize(width: 512, height: 512)
+    /// 默认模型输入尺寸（用于缓冲池）
+    private let defaultModelInputSize = CGSize(width: 512, height: 512)
+    
+    /// 不同尺寸的 PixelBuffer 池
+    private var bufferPools: [CGSize: CVPixelBufferPool] = [:]
     
     // MARK: - 性能优化：缓存和跳帧
     
@@ -82,8 +116,6 @@ final class StyleService {
     /// 复用的输入 PixelBuffer
     private var reusableInputBuffer: CVPixelBuffer?
     
-    /// PixelBuffer 池
-    private var bufferPool: CVPixelBufferPool?
     
     /// 线程安全锁
     private let lock = NSLock()
@@ -117,24 +149,43 @@ final class StyleService {
     // MARK: - 缓冲池设置
     
     private func setupBufferPool() {
+        // 为默认尺寸创建缓冲池
+        _ = getOrCreateBufferPool(for: defaultModelInputSize)
+    }
+    
+    /// 获取或创建指定尺寸的缓冲池
+    private func getOrCreateBufferPool(for size: CGSize) -> CVPixelBufferPool? {
+        // 检查是否已存在
+        if let pool = bufferPools[size] {
+            return pool
+        }
+        
+        // 创建新的缓冲池
         let poolAttrs: [CFString: Any] = [
             kCVPixelBufferPoolMinimumBufferCountKey: 2
         ]
         
         let bufferAttrs: [CFString: Any] = [
-            kCVPixelBufferWidthKey: Int(modelInputSize.width),
-            kCVPixelBufferHeightKey: Int(modelInputSize.height),
+            kCVPixelBufferWidthKey: Int(size.width),
+            kCVPixelBufferHeightKey: Int(size.height),
             kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
             kCVPixelBufferMetalCompatibilityKey: true,
             kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary
         ]
         
+        var pool: CVPixelBufferPool?
         CVPixelBufferPoolCreate(
             kCFAllocatorDefault,
             poolAttrs as CFDictionary,
             bufferAttrs as CFDictionary,
-            &bufferPool
+            &pool
         )
+        
+        if let pool = pool {
+            bufferPools[size] = pool
+        }
+        
+        return pool
     }
     
     // MARK: - 公开方法
@@ -215,7 +266,7 @@ final class StyleService {
         }
         
         // 执行风格转换
-        guard let styledImage = performStyleTransfer(image: image, model: model) else {
+        guard let styledImage = performStyleTransfer(image: image, model: model, style: style) else {
             return image
         }
         
@@ -267,21 +318,24 @@ final class StyleService {
     }
     
     /// 执行风格转换（优化版）
-    private func performStyleTransfer(image: CIImage, model: MLModel) -> CIImage? {
+    private func performStyleTransfer(image: CIImage, model: MLModel, style: FilterStyle) -> CIImage? {
+        guard let config = style.modelConfig else { return nil }
+        
         let originalExtent = image.extent
+        let inputSize = config.inputSize
         
         // 1. 缩放到模型输入尺寸（使用更快的滤镜）
-        let scaleX = modelInputSize.width / originalExtent.width
-        let scaleY = modelInputSize.height / originalExtent.height
+        let scaleX = inputSize.width / originalExtent.width
+        let scaleY = inputSize.height / originalExtent.height
         
         // 使用 Lanczos 缩放（质量和速度的平衡）
         let scaledImage = image.applyingFilter("CILanczosScaleTransform", parameters: [
             kCIInputScaleKey: min(scaleX, scaleY),
             kCIInputAspectRatioKey: scaleX / scaleY
-        ]).cropped(to: CGRect(origin: .zero, size: modelInputSize))
+        ]).cropped(to: CGRect(origin: .zero, size: inputSize))
         
         // 2. 获取或创建输入 PixelBuffer
-        guard let inputBuffer = getOrCreateInputBuffer(from: scaledImage) else {
+        guard let inputBuffer = getOrCreateInputBuffer(from: scaledImage, size: inputSize) else {
             print("❌ 创建输入 PixelBuffer 失败")
             return nil
         }
@@ -289,14 +343,14 @@ final class StyleService {
         // 3. 执行模型预测
         do {
             let input = try MLDictionaryFeatureProvider(dictionary: [
-                "image": MLFeatureValue(pixelBuffer: inputBuffer)
+                config.inputName: MLFeatureValue(pixelBuffer: inputBuffer)
             ])
             
             // 使用同步预测（在渲染线程上已经是后台）
             let output = try model.prediction(from: input)
             
-            guard let outputBuffer = output.featureValue(for: "stylizedImage")?.imageBufferValue else {
-                print("❌ 获取模型输出失败")
+            guard let outputBuffer = output.featureValue(for: config.outputName)?.imageBufferValue else {
+                print("❌ 获取模型输出失败，输出名称: \(config.outputName)")
                 return nil
             }
             
@@ -304,8 +358,8 @@ final class StyleService {
             var outputImage = CIImage(cvPixelBuffer: outputBuffer)
             
             // 使用快速缩放
-            let restoreScaleX = originalExtent.width / modelInputSize.width
-            let restoreScaleY = originalExtent.height / modelInputSize.height
+            let restoreScaleX = originalExtent.width / inputSize.width
+            let restoreScaleY = originalExtent.height / inputSize.height
             
             outputImage = outputImage.applyingFilter("CILanczosScaleTransform", parameters: [
                 kCIInputScaleKey: max(restoreScaleX, restoreScaleY),
@@ -321,11 +375,11 @@ final class StyleService {
     }
     
     /// 从缓冲池获取或创建输入 PixelBuffer
-    private func getOrCreateInputBuffer(from image: CIImage) -> CVPixelBuffer? {
+    private func getOrCreateInputBuffer(from image: CIImage, size: CGSize) -> CVPixelBuffer? {
         var pixelBuffer: CVPixelBuffer?
         
         // 尝试从池中获取
-        if let pool = bufferPool {
+        if let pool = getOrCreateBufferPool(for: size) {
             let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
             if status == kCVReturnSuccess, let buffer = pixelBuffer {
                 ciContext.render(image, to: buffer)
@@ -334,13 +388,13 @@ final class StyleService {
         }
         
         // 回退：创建新的 buffer
-        return createPixelBuffer(from: image)
+        return createPixelBuffer(from: image, size: size)
     }
     
     /// 从 CIImage 创建 CVPixelBuffer（回退方法）
-    private func createPixelBuffer(from image: CIImage) -> CVPixelBuffer? {
-        let width = Int(modelInputSize.width)
-        let height = Int(modelInputSize.height)
+    private func createPixelBuffer(from image: CIImage, size: CGSize) -> CVPixelBuffer? {
+        let width = Int(size.width)
+        let height = Int(size.height)
         
         var pixelBuffer: CVPixelBuffer?
         let attrs: [CFString: Any] = [

@@ -322,6 +322,24 @@ final class CameraViewModel: ObservableObject {
         selectedCloneId = id
     }
     
+    /// 切换分身冻结状态（快照/继续）
+    func toggleCloneFrozen(id: UUID) {
+        guard let index = clones.firstIndex(where: { $0.id == id }) else { return }
+        clones[index].isFrozen.toggle()
+    }
+    
+    /// 冻结分身（保存快照）
+    func freezeClone(id: UUID) {
+        guard let index = clones.firstIndex(where: { $0.id == id }) else { return }
+        clones[index].isFrozen = true
+    }
+    
+    /// 解冻分身（恢复实时更新）
+    func unfreezeClone(id: UUID) {
+        guard let index = clones.firstIndex(where: { $0.id == id }) else { return }
+        clones[index].isFrozen = false
+    }
+    
     /// 获取分身数量
     var cloneCount: Int {
         clones.count

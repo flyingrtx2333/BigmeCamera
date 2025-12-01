@@ -7,11 +7,21 @@ struct CloneInstance: Identifiable, Equatable {
     let id: UUID
     var center: CGPoint  // 分身质心位置（CIImage 坐标系）
     var scale: CGFloat   // 分身缩放比例
+    var isFrozen: Bool   // 是否冻结快照（暂停更新）
     
-    init(id: UUID = UUID(), center: CGPoint, scale: CGFloat = 1.0) {
+    init(id: UUID = UUID(), center: CGPoint, scale: CGFloat = 1.0, isFrozen: Bool = false) {
         self.id = id
         self.center = center
         self.scale = scale
+        self.isFrozen = isFrozen
+    }
+    
+    // 由于 CGImage 不支持 Equatable，需要自定义比较
+    static func == (lhs: CloneInstance, rhs: CloneInstance) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.center == rhs.center &&
+        lhs.scale == rhs.scale &&
+        lhs.isFrozen == rhs.isFrozen
     }
 }
 

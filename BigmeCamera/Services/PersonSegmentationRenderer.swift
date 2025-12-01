@@ -42,6 +42,9 @@ final class PersonSegmentationRenderer {
     // 滤镜服务引用
     private let styleService = StyleService.shared
     
+    // 分身快照缓存：存储每个冻结分身的 personCutout 图像
+    private var frozenCloneSnapshots: [UUID: CIImage] = [:]
+    
     func render(sampleBuffer: CMSampleBuffer, config: SegmentationConfig, customCenter: CGPoint? = nil, clones: [CloneInstance] = [], stickers: [StickerInstance] = [], filterStyle: FilterStyle = .none) -> RenderResult? {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return nil }
 
@@ -182,7 +185,25 @@ final class PersonSegmentationRenderer {
         
         // --- 渲染分身（叠加在主人物之上） ---
         for clone in clones {
-            let clonePerson = personCutout.scaledAndAnchored(
+            let cloneImage: CIImage
+            
+            if clone.isFrozen {
+                // 分身已冻结，使用快照图像
+                if let snapshot = frozenCloneSnapshots[clone.id] {
+                    cloneImage = snapshot
+                } else {
+                    // 首次冻结，保存当前 personCutout 作为快照
+                    frozenCloneSnapshots[clone.id] = personCutout
+                    cloneImage = personCutout
+                }
+            } else {
+                // 分身未冻结，使用实时人物图像
+                // 同时清除可能存在的旧快照
+                frozenCloneSnapshots.removeValue(forKey: clone.id)
+                cloneImage = personCutout
+            }
+            
+            let clonePerson = cloneImage.scaledAndAnchored(
                 around: clone.center,
                 scale: clone.scale,
                 targetRect: targetRect
@@ -191,6 +212,10 @@ final class PersonSegmentationRenderer {
                 .composited(over: composited)
                 .cropped(to: targetRect)
         }
+        
+        // 清理已删除分身的快照缓存
+        let currentCloneIds = Set(clones.map { $0.id })
+        frozenCloneSnapshots = frozenCloneSnapshots.filter { currentCloneIds.contains($0.key) }
         
         // --- 渲染贴纸（叠加在最上层） ---
         for sticker in stickers {
