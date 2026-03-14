@@ -5,7 +5,7 @@ struct SideControlPanelView: View {
     @ObservedObject var stickerVM: StickerViewModel
     @ObservedObject var filterVM: FilterViewModel
     var personCenter: CGPoint?
-    var personScale: CGFloat = 1.0  // 新分身继承当前人物缩放比例
+    var personScale: CGFloat = 1.0
 
     @State private var selectedCategory: ControlCategory? = nil
     @State private var selectedStickerCategory: StickerCategory = .emotion
@@ -22,24 +22,32 @@ struct SideControlPanelView: View {
             case .filter: return "camera.filters"
             }
         }
+
+        var accentColor: Color {
+            switch self {
+            case .clone: return Color(red: 0.35, green: 0.65, blue: 1.0)
+            case .sticker: return Color(red: 1.0, green: 0.65, blue: 0.25)
+            case .filter: return Color(red: 0.55, green: 0.90, blue: 0.65)
+            }
+        }
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 16) {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 14) {
                 ForEach(ControlCategory.allCases, id: \.self) { category in
-                    HStack(spacing: 12) {
+                    HStack(spacing: 10) {
                         categoryButton(category)
 
                         if selectedCategory == category {
                             panelContent(for: category)
-                                .padding(.horizontal, 16)
+                                .padding(.horizontal, 14)
                                 .padding(.vertical, 14)
-                                .frame(width: 224)
+                                .frame(width: 228)
                                 .liquidGlass(cornerRadius: 20)
                                 .transition(
                                     .asymmetric(
-                                        insertion: .move(edge: .leading).combined(with: .opacity).combined(with: .scale(scale: 0.95, anchor: .leading)),
+                                        insertion: .move(edge: .leading).combined(with: .opacity).combined(with: .scale(scale: 0.96, anchor: .leading)),
                                         removal: .move(edge: .leading).combined(with: .opacity)
                                     )
                                 )
@@ -47,8 +55,8 @@ struct SideControlPanelView: View {
                     }
                 }
             }
-            .padding(.vertical, 12)
-            .padding(.leading, 12)
+            .padding(.vertical, 10)
+            .padding(.leading, 10)
 
             Spacer()
         }
@@ -65,62 +73,66 @@ struct SideControlPanelView: View {
             case .filter: return nil
             }
         }()
-        let badgeColor: Color = category == .clone ? .red : .orange
 
         return Button {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.78)) {
                 selectedCategory = selectedCategory == category ? nil : category
             }
         } label: {
-            VStack(spacing: 4) {
+            VStack(spacing: 5) {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: category.icon)
-                        .font(.system(size: 24))
-                        .foregroundColor(isSelected ? .white : .white.opacity(0.6))
-                        .frame(width: 32, height: 32)
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(
+                            isSelected
+                                ? LinearGradient(colors: [.white, category.accentColor.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+                                : LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0.35)], startPoint: .top, endPoint: .bottom)
+                        )
+                        .frame(width: 28, height: 28)
 
                     if let badge {
                         Text("\(badge)")
-                            .font(.system(size: 10, weight: .bold))
+                            .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white)
-                            .frame(width: 16, height: 16)
-                            .background(Circle().fill(badgeColor))
-                            .offset(x: 8, y: -8)
+                            .frame(width: 15, height: 15)
+                            .background(Circle().fill(category.accentColor))
+                            .offset(x: 7, y: -7)
                     }
                 }
 
                 Text(category.rawValue)
-                    .font(.system(size: 10))
-                    .foregroundColor(isSelected ? .white : .white.opacity(0.6))
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(isSelected ? .white : .white.opacity(0.50))
+                    .tracking(0.3)
             }
-            .frame(width: 60, height: 60)
+            .frame(width: 56, height: 56)
             .background {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(isSelected
-                          ? Color.white.opacity(0.22)
-                          : Color.white.opacity(0.08))
+                          ? category.accentColor.opacity(0.18)
+                          : Color.white.opacity(0.07))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(
                                 LinearGradient(
                                     colors: isSelected
-                                        ? [.white.opacity(0.55), .white.opacity(0.15)]
-                                        : [.white.opacity(0.2), .white.opacity(0.05)],
+                                        ? [category.accentColor.opacity(0.60), category.accentColor.opacity(0.15)]
+                                        : [.white.opacity(0.18), .white.opacity(0.04)],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 ),
-                                lineWidth: 0.6
+                                lineWidth: 0.7
                             )
                     }
-                    .shadow(color: .black.opacity(isSelected ? 0.3 : 0.15), radius: isSelected ? 12 : 6, y: 4)
+                    .shadow(color: .black.opacity(isSelected ? 0.35 : 0.18), radius: isSelected ? 14 : 7, y: 4)
             }
         }
         .buttonStyle(.plain)
-        .scaleEffect(isSelected ? 1.05 : 1.0)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+        .scaleEffect(isSelected ? 1.06 : 1.0)
+        .animation(.spring(response: 0.28, dampingFraction: 0.70), value: isSelected)
     }
 
-    // MARK: - 面板内容（用 selectedCategory 直接驱动，无冗余 Bool）
+    // MARK: - 面板内容
 
     @ViewBuilder
     private func panelContent(for category: ControlCategory) -> some View {
@@ -134,12 +146,8 @@ struct SideControlPanelView: View {
     // MARK: - 分身面板
 
     private var clonePanel: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("分身管理")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white)
-                Spacer()
+        VStack(alignment: .leading, spacing: 14) {
+            panelHeader(title: "分身管理") {
                 Button {
                     if let center = personCenter {
                         cloneVM.add(near: center, scale: personScale)
@@ -149,30 +157,15 @@ struct SideControlPanelView: View {
                         Image(systemName: "plus.circle.fill")
                         Text("添加")
                     }
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.blue)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(ControlCategory.clone.accentColor)
                 }
             }
 
             if cloneVM.clones.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "person.2.slash")
-                        .font(.system(size: 24))
-                        .foregroundColor(.white.opacity(0.4))
-                    Text("点击「添加」创建分身")
-                        .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.6))
-                    VStack(spacing: 2) {
-                        Text("拖动红点移动分身位置")
-                        Text("点击📷可冻结快照")
-                    }
-                    .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.4))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
+                emptyState(icon: "person.2.slash", message: "点击「添加」创建分身", hint: "拖动蓝点移动分身位置")
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: 6) {
                     ForEach(cloneVM.clones) { clone in
                         cloneItem(clone)
                     }
@@ -180,15 +173,15 @@ struct SideControlPanelView: View {
                 Button {
                     cloneVM.removeAll()
                 } label: {
-                    HStack {
+                    HStack(spacing: 6) {
                         Image(systemName: "trash")
                         Text("清除所有分身")
                     }
-                    .font(.system(size: 12))
-                    .foregroundColor(.red.opacity(0.8))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.red.opacity(0.75))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background { RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.1)) }
+                    .padding(.vertical, 7)
+                    .background { RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.08)) }
                 }
             }
         }
@@ -200,34 +193,34 @@ struct SideControlPanelView: View {
 
         return HStack(spacing: 8) {
             ZStack {
-                Circle()
-                    .fill(isSelected ? Color.blue : Color.white.opacity(0.3))
-                    .frame(width: 8, height: 8)
-                    .opacity(clone.isFrozen ? 0 : 1)
                 if clone.isFrozen {
                     Image(systemName: "snowflake")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(.cyan)
+                } else {
+                    Circle()
+                        .fill(isSelected ? ControlCategory.clone.accentColor : Color.white.opacity(0.35))
+                        .frame(width: 7, height: 7)
                 }
             }
             .frame(width: 12)
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
+                HStack(spacing: 5) {
                     Text("分身 #\(index + 1)")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.white)
                     if clone.isFrozen {
-                        Text("已快照")
-                            .font(.system(size: 9, weight: .medium))
+                        Text("快照")
+                            .font(.system(size: 8, weight: .bold))
                             .foregroundColor(.cyan)
-                            .padding(.horizontal, 4).padding(.vertical, 1)
-                            .background { Capsule().fill(Color.cyan.opacity(0.2)) }
+                            .padding(.horizontal, 5).padding(.vertical, 1.5)
+                            .background { Capsule().fill(Color.cyan.opacity(0.18)) }
                     }
                 }
-                Text("缩放: \(String(format: "%.0f", clone.scale * 100))%")
-                    .font(.system(size: 10))
-                    .foregroundColor(.white.opacity(0.6))
+                Text("缩放 \(String(format: "%.0f", clone.scale * 100))%")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.50))
             }
 
             Spacer()
@@ -242,16 +235,18 @@ struct SideControlPanelView: View {
             Button { cloneVM.remove(id: clone.id) } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 16))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(.white.opacity(0.40))
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
         .background {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(clone.isFrozen ? Color.cyan.opacity(0.15) : (isSelected ? Color.blue.opacity(0.2) : Color.white.opacity(0.05)))
+            RoundedRectangle(cornerRadius: 9)
+                .fill(clone.isFrozen ? Color.cyan.opacity(0.12) : (isSelected ? ControlCategory.clone.accentColor.opacity(0.15) : Color.white.opacity(0.05)))
                 .overlay {
                     if clone.isFrozen {
-                        RoundedRectangle(cornerRadius: 8).stroke(Color.cyan.opacity(0.4), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 9).stroke(Color.cyan.opacity(0.35), lineWidth: 0.7)
+                    } else if isSelected {
+                        RoundedRectangle(cornerRadius: 9).stroke(ControlCategory.clone.accentColor.opacity(0.40), lineWidth: 0.7)
                     }
                 }
         }
@@ -263,39 +258,44 @@ struct SideControlPanelView: View {
 
     private var stickerPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("贴纸")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white)
-                Spacer()
+            panelHeader(title: "贴纸") {
                 if !stickerVM.stickers.isEmpty {
                     Button { stickerVM.removeAll() } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "trash")
                             Text("清除")
                         }
-                        .font(.system(size: 11))
-                        .foregroundColor(.red.opacity(0.8))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.red.opacity(0.75))
                     }
                 }
             }
 
-            HStack(spacing: 8) {
+            // 分类标签
+            HStack(spacing: 6) {
                 ForEach(StickerCategory.allCases, id: \.rawValue) { cat in
                     Button { selectedStickerCategory = cat } label: {
                         Text(cat.rawValue)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(selectedStickerCategory == cat ? .white : .white.opacity(0.5))
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(selectedStickerCategory == cat ? .white : .white.opacity(0.45))
                             .padding(.horizontal, 10).padding(.vertical, 5)
                             .background {
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(selectedStickerCategory == cat ? Color.white.opacity(0.2) : Color.clear)
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill(selectedStickerCategory == cat
+                                          ? ControlCategory.sticker.accentColor.opacity(0.22)
+                                          : Color.clear)
+                                    .overlay {
+                                        if selectedStickerCategory == cat {
+                                            RoundedRectangle(cornerRadius: 7)
+                                                .stroke(ControlCategory.sticker.accentColor.opacity(0.45), lineWidth: 0.7)
+                                        }
+                                    }
                             }
                     }
                 }
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 7) {
                 ForEach(selectedStickerCategory.stickers) { sticker in
                     Button {
                         if let center = personCenter {
@@ -304,25 +304,32 @@ struct SideControlPanelView: View {
                     } label: {
                         VStack(spacing: 4) {
                             Image(systemName: sticker.rawValue)
-                                .font(.system(size: 24))
+                                .font(.system(size: 22))
                                 .foregroundColor(Color(red: sticker.color.r, green: sticker.color.g, blue: sticker.color.b))
                             Text(sticker.displayName)
-                                .font(.system(size: 9))
-                                .foregroundColor(.white.opacity(0.7))
+                                .font(.system(size: 8, weight: .medium))
+                                .foregroundColor(.white.opacity(0.65))
                         }
                         .frame(width: 50, height: 50)
-                        .background { RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.1)) }
+                        .background {
+                            RoundedRectangle(cornerRadius: 9)
+                                .fill(Color.white.opacity(0.07))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 9)
+                                        .stroke(Color.white.opacity(0.10), lineWidth: 0.6)
+                                }
+                        }
                     }
                 }
             }
 
             if !stickerVM.stickers.isEmpty {
-                Divider().background(Color.white.opacity(0.2))
+                Divider().background(Color.white.opacity(0.12))
                 Text("已添加 (\(stickerVM.stickers.count))")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.6))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.50))
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 7) {
                         ForEach(stickerVM.stickers) { sticker in
                             addedStickerItem(sticker)
                         }
@@ -340,21 +347,24 @@ struct SideControlPanelView: View {
                 .foregroundColor(Color(red: sticker.type.color.r, green: sticker.type.color.g, blue: sticker.type.color.b))
                 .frame(width: 40, height: 40)
                 .background {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(isSelected ? Color.orange.opacity(0.3) : Color.white.opacity(0.1))
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(isSelected ? ControlCategory.sticker.accentColor.opacity(0.22) : Color.white.opacity(0.08))
                         .overlay {
-                            if isSelected { RoundedRectangle(cornerRadius: 6).stroke(Color.orange, lineWidth: 2) }
+                            if isSelected {
+                                RoundedRectangle(cornerRadius: 7)
+                                    .stroke(ControlCategory.sticker.accentColor.opacity(0.55), lineWidth: 1)
+                            }
                         }
                 }
                 .onTapGesture { stickerVM.select(id: sticker.id) }
 
             Button { stickerVM.remove(id: sticker.id) } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundColor(.white.opacity(0.7))
-                    .background(Circle().fill(Color.black.opacity(0.5)))
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.65))
+                    .background(Circle().fill(Color.black.opacity(0.45)))
             }
-            .offset(x: 6, y: -6)
+            .offset(x: 5, y: -5)
         }
     }
 
@@ -362,31 +372,27 @@ struct SideControlPanelView: View {
 
     private var filterPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("滤镜风格")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white)
-                Spacer()
+            panelHeader(title: "滤镜风格") {
                 if filterVM.isModelLoading {
                     HStack(spacing: 4) {
-                        ProgressView().scaleEffect(0.6).tint(.white)
-                        Text("加载中...")
+                        ProgressView().scaleEffect(0.55).tint(ControlCategory.filter.accentColor)
+                        Text("加载中")
                             .font(.system(size: 10))
-                            .foregroundColor(.white.opacity(0.6))
+                            .foregroundColor(.white.opacity(0.55))
                     }
                 }
             }
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 10) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 8) {
                 ForEach(FilterStyle.allCases) { filter in
                     filterButton(filter)
                 }
             }
 
             Text("选择风格后将应用到整个画面")
-                .font(.system(size: 10))
-                .foregroundColor(.white.opacity(0.5))
-                .padding(.top, 4)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.white.opacity(0.40))
+                .padding(.top, 2)
         }
     }
 
@@ -398,24 +404,57 @@ struct SideControlPanelView: View {
             VStack(spacing: 6) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(isSelected ? Color.blue.opacity(0.3) : Color.white.opacity(0.1))
-                        .frame(height: 50)
+                        .fill(isSelected
+                              ? ControlCategory.filter.accentColor.opacity(0.20)
+                              : Color.white.opacity(0.07))
+                        .frame(height: 48)
+                        .overlay {
+                            if isSelected {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(ControlCategory.filter.accentColor.opacity(0.55), lineWidth: 1)
+                            }
+                        }
                     if isLoading {
-                        ProgressView().scaleEffect(0.8).tint(.white)
+                        ProgressView().scaleEffect(0.75).tint(ControlCategory.filter.accentColor)
                     } else {
                         Image(systemName: filter.icon)
-                            .font(.system(size: 22))
-                            .foregroundColor(isSelected ? .blue : .white.opacity(0.7))
+                            .font(.system(size: 20))
+                            .foregroundColor(isSelected ? ControlCategory.filter.accentColor : .white.opacity(0.65))
                     }
                 }
-                .overlay {
-                    if isSelected { RoundedRectangle(cornerRadius: 10).stroke(Color.blue, lineWidth: 2) }
-                }
                 Text(filter.displayName)
-                    .font(.system(size: 11, weight: isSelected ? .medium : .regular))
-                    .foregroundColor(isSelected ? .white : .white.opacity(0.7))
+                    .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+                    .foregroundColor(isSelected ? .white : .white.opacity(0.65))
             }
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - 共用子组件
+
+    private func panelHeader(title: String, @ViewBuilder trailing: () -> some View) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+            Spacer()
+            trailing()
+        }
+    }
+
+    private func emptyState(icon: String, message: String, hint: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 22))
+                .foregroundColor(.white.opacity(0.30))
+            Text(message)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.white.opacity(0.55))
+            Text(hint)
+                .font(.system(size: 9))
+                .foregroundColor(.white.opacity(0.35))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
     }
 }

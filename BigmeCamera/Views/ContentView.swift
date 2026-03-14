@@ -113,18 +113,23 @@ struct ContentView: View {
     @ViewBuilder
     private var debugHUD: some View {
         if viewModel.isSessionRunning {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 // FPS 胶囊
-                Text("\(Int(viewModel.currentFPS)) FPS")
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .liquidGlassCapsule()
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(Color.accentAmber)
+                        .frame(width: 5, height: 5)
+                    Text("\(Int(viewModel.currentFPS)) FPS")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .liquidGlassCapsule()
 
                 // 缩放倍数
                 Text("\(String(format: "%.1f", viewModel.currentZoom))×")
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.85))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(Color.accentAmber.opacity(0.90))
                     .padding(.horizontal, 10).padding(.vertical, 5)
                     .liquidGlassCapsule()
             }
@@ -138,14 +143,14 @@ struct ContentView: View {
         if viewModel.isSaving {
             HStack(spacing: 8) {
                 ProgressView()
-                    .scaleEffect(0.75)
-                    .tint(.white)
+                    .scaleEffect(0.70)
+                    .tint(Color.accentAmber)
                 Text("保存中...")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.white)
             }
             .padding(.horizontal, 14).padding(.vertical, 8)
-            .liquidGlassCapsule()
+            .liquidGlassCapsule(accentTint: true)
             .padding(.top, 56)
             .padding(.trailing, 16)
             .transition(.scale(scale: 0.85).combined(with: .opacity))
@@ -165,7 +170,7 @@ struct ContentView: View {
                 if let center = viewModel.personCenter {
                     let screenPt = cs.toScreen(center)
                     CenterPointView(
-                        color: .red,
+                        color: Color.accentAmber,
                         isSelected: viewModel.cloneVM.selectedCloneId == nil,
                         label: "主"
                     )

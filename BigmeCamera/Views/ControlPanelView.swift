@@ -32,7 +32,12 @@ struct ControlPanelView: View {
     // MARK: - 高级控件抽屉
 
     private var advancedPanel: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 18) {
+            // 拖拽指示条
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color.white.opacity(0.25))
+                .frame(width: 36, height: 3)
+
             sliderRow(
                 label: NSLocalizedString("Person Scale", comment: ""),
                 value: String(format: "%.2fx", viewModel.config.personScale),
@@ -55,19 +60,25 @@ struct ControlPanelView: View {
             )
 
             // 分割质量选择器
-            Picker(NSLocalizedString("Segmentation Quality", comment: ""), selection: Binding(
-                get: { viewModel.config.quality },
-                set: { viewModel.updateQuality($0) }
-            )) {
-                ForEach(SegmentationConfig.Quality.allCases) { q in
-                    Text(q.displayName).tag(q)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(NSLocalizedString("Segmentation Quality", comment: ""))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.70))
+                Picker(NSLocalizedString("Segmentation Quality", comment: ""), selection: Binding(
+                    get: { viewModel.config.quality },
+                    set: { viewModel.updateQuality($0) }
+                )) {
+                    ForEach(SegmentationConfig.Quality.allCases) { q in
+                        Text(q.displayName).tag(q)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .colorScheme(.dark)
             }
-            .pickerStyle(.segmented)
-            .colorScheme(.dark)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 16)
         .liquidGlass(cornerRadius: 24)
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
@@ -78,25 +89,25 @@ struct ControlPanelView: View {
             HStack {
                 Text(label)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white.opacity(0.85))
+                    .foregroundColor(.white.opacity(0.80))
                 Spacer()
                 Text(value)
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white)
+                    .foregroundColor(Color.accentAmber)
             }
             Slider(value: binding, in: range, step: step)
-                .tint(.white)
+                .tint(Color.accentAmber)
         }
     }
 
     // MARK: - 主控制栏
 
     private var mainBar: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             // 录像时长胶囊
             if viewModel.recordingVM.isRecording {
                 recordingBadge
-                    .transition(.scale.combined(with: .opacity))
+                    .transition(.scale(scale: 0.85).combined(with: .opacity))
             }
 
             // 按钮行
@@ -115,29 +126,29 @@ struct ControlPanelView: View {
             }
             .padding(.horizontal, 8)
         }
-        .padding(.top, 12)
+        .padding(.top, 14)
         .padding(.bottom, max(safeAreaBottom, 24))
         .background {
             // 液态玻璃底栏
             Rectangle()
                 .fill(.ultraThinMaterial)
                 .overlay(alignment: .top) {
-                    // 顶部高光线
+                    // 顶部高光线 — 琥珀金
                     Rectangle()
                         .fill(
                             LinearGradient(
-                                colors: [.white.opacity(0.25), .clear],
+                                colors: [Color.accentAmber.opacity(0.30), .clear],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
                         )
-                        .frame(height: 0.5)
+                        .frame(height: 0.6)
                 }
                 .ignoresSafeArea(edges: .bottom)
         }
         .overlay(alignment: .topTrailing) {
             advancedToggleButton
-                .padding(.top, -44)
+                .padding(.top, -48)
                 .padding(.trailing, 16)
         }
     }
@@ -145,18 +156,17 @@ struct ControlPanelView: View {
     // MARK: - 录像时长胶囊
 
     private var recordingBadge: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(Color.red)
-                .frame(width: 8, height: 8)
-                .overlay {
-                    Circle()
-                        .fill(Color.red.opacity(0.4))
-                        .frame(width: 16, height: 16)
-                        .scaleEffect(1.0)
-                }
+        HStack(spacing: 8) {
+            ZStack {
+                Circle()
+                    .fill(Color.red.opacity(0.35))
+                    .frame(width: 18, height: 18)
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 8, height: 8)
+            }
             Text(viewModel.recordingVM.formattedDuration)
-                .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                .font(.system(size: 14, weight: .semibold, design: .monospaced))
                 .foregroundColor(.white)
         }
         .padding(.horizontal, 16)
@@ -179,13 +189,13 @@ struct ControlPanelView: View {
                     .foregroundColor(.white)
                 Text(isPhoto ? NSLocalizedString("Video", comment: "录像") : NSLocalizedString("Photo", comment: "拍照"))
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.white.opacity(0.8))
+                    .foregroundColor(.white.opacity(0.75))
             }
             .liquidGlassCircle(diameter: 56)
         }
         .buttonStyle(.plain)
         .disabled(viewModel.recordingVM.isRecording)
-        .opacity(viewModel.recordingVM.isRecording ? 0.4 : 1.0)
+        .opacity(viewModel.recordingVM.isRecording ? 0.35 : 1.0)
         .animation(.easeInOut(duration: 0.2), value: viewModel.recordingVM.isRecording)
     }
 
@@ -213,21 +223,29 @@ struct ControlPanelView: View {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         } label: {
             ZStack {
-                // 外环
+                // 琥珀金外环
                 Circle()
-                    .stroke(.white.opacity(0.9), lineWidth: 3)
-                    .frame(width: 76, height: 76)
-                // 内圆（液态玻璃白色）
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color.accentAmber.opacity(0.85), Color.white.opacity(0.60)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 3
+                    )
+                    .frame(width: 78, height: 78)
+                // 内圆
                 Circle()
                     .fill(.white)
                     .frame(width: 64, height: 64)
-                    .shadow(color: .white.opacity(0.4), radius: 12)
+                    .shadow(color: Color.accentAmber.opacity(0.35), radius: 14)
+                    .shadow(color: .white.opacity(0.25), radius: 6)
             }
-            .scaleEffect(capturePressed ? 0.88 : 1.0)
+            .scaleEffect(capturePressed ? 0.87 : 1.0)
         }
         .buttonStyle(.plain)
         .disabled(viewModel.renderedFrame == nil)
-        .opacity(viewModel.renderedFrame == nil ? 0.4 : 1.0)
+        .opacity(viewModel.renderedFrame == nil ? 0.35 : 1.0)
     }
 
     private var videoButton: some View {
@@ -242,26 +260,26 @@ struct ControlPanelView: View {
         } label: {
             ZStack {
                 Circle()
-                    .stroke(.white.opacity(0.9), lineWidth: 3)
-                    .frame(width: 76, height: 76)
+                    .stroke(.white.opacity(0.85), lineWidth: 3)
+                    .frame(width: 78, height: 78)
                     .recordingPulse(isRecording: isRec)
 
                 if isRec {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
                         .fill(Color.red)
                         .frame(width: 28, height: 28)
-                        .shadow(color: .red.opacity(0.6), radius: 8)
+                        .shadow(color: .red.opacity(0.65), radius: 10)
                 } else {
                     Circle()
                         .fill(Color.red)
                         .frame(width: 64, height: 64)
-                        .shadow(color: .red.opacity(0.5), radius: 12)
+                        .shadow(color: .red.opacity(0.50), radius: 14)
                 }
             }
         }
         .buttonStyle(.plain)
         .disabled(viewModel.renderedFrame == nil)
-        .opacity(viewModel.renderedFrame == nil ? 0.4 : 1.0)
+        .opacity(viewModel.renderedFrame == nil ? 0.35 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isRec)
     }
 
@@ -279,7 +297,7 @@ struct ControlPanelView: View {
         }
         .buttonStyle(.plain)
         .disabled(viewModel.recordingVM.isRecording)
-        .opacity(viewModel.recordingVM.isRecording ? 0.4 : 1.0)
+        .opacity(viewModel.recordingVM.isRecording ? 0.35 : 1.0)
         .animation(.easeInOut(duration: 0.2), value: viewModel.recordingVM.isRecording)
     }
 
@@ -291,16 +309,19 @@ struct ControlPanelView: View {
                 toggleAdvanced()
             }
         } label: {
-            Image(systemName: showAdvanced ? "slider.horizontal.3" : "slider.horizontal.3")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(showAdvanced ? .white : .white.opacity(0.7))
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(showAdvanced ? Color.accentAmber : .white.opacity(0.70))
                 .frame(width: 36, height: 36)
                 .background {
                     Circle()
-                        .fill(showAdvanced ? Color.white.opacity(0.25) : Color.white.opacity(0.12))
+                        .fill(showAdvanced ? Color.accentAmber.opacity(0.20) : Color.white.opacity(0.10))
                         .overlay {
                             Circle()
-                                .stroke(.white.opacity(showAdvanced ? 0.5 : 0.2), lineWidth: 0.6)
+                                .stroke(
+                                    showAdvanced ? Color.accentAmber.opacity(0.55) : Color.white.opacity(0.18),
+                                    lineWidth: 0.7
+                                )
                         }
                 }
         }

@@ -6,16 +6,17 @@ struct SaveStatusBadge: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: isSuccess ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                .font(.system(size: 13, weight: .semibold))
             Text(isSuccess ? NSLocalizedString("Saved", comment: "") : NSLocalizedString("Save Failed", comment: ""))
-                .font(.caption)
-                .bold()
+                .font(.system(size: 12, weight: .semibold))
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(isSuccess ? Color.green.opacity(0.8) : Color.red.opacity(0.8),
-                    in: Capsule(style: .continuous))
-        .shadow(radius: 4)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            Capsule(style: .continuous)
+                .fill(isSuccess ? Color.accentAmber.opacity(0.85) : Color.red.opacity(0.80))
+                .shadow(color: (isSuccess ? Color.accentAmber : Color.red).opacity(0.45), radius: 8)
+        )
     }
 }
-
