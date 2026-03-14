@@ -3,8 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var viewModel: CameraViewModel
     @State private var initialZoom: CGFloat = 1.0
-    
-    // 新手帮助相关状态
+
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var onboardingStep: Int = 0
     @State private var showAdvancedControlsForOnboarding = false
@@ -12,209 +11,73 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             CameraPreviewView(frame: viewModel.renderedFrame)
-                .overlay(alignment: .topLeading) {
-                    // 帧率显示（左上角，下移一点）
-                    if viewModel.isSessionRunning {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("\(Int(viewModel.currentFPS)) FPS")
-                                .font(.system(size: 14, weight: .medium, design: .monospaced))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                            
-                            // 缩放倍数显示
-                            Text("\(String(format: "%.2f", viewModel.currentZoom))x")
-                                .font(.system(size: 12, weight: .regular, design: .monospaced))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                            
-                            // 质心调试信息
-                            if let center = viewModel.personCenter {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("质心: (x: \(Int(center.x)), y: \(Int(center.y)))")
-                                        .font(.system(size: 12, weight: .regular, design: .monospaced))
-                                        .foregroundColor(.white)
-                                }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                            }
-                        }
-                        .padding(.top, 60)
-                        .padding(.leading)
-                    }
-                }
-                .overlay(alignment: .topTrailing) {
-                    VStack(alignment: .trailing) {
-                        // 保存进度指示器
-                        if viewModel.isSaving {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                    .tint(.white)
-                                Text("保存中...")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.white)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(.ultraThinMaterial, in: Capsule(style: .continuous))
-                        }
-                    }
-                    .padding(.top, 60)
-                    .padding(.trailing)
-                }
-                .overlay {
-                    // 质心点可视化（主人物 + 分身）
-                    if let frame = viewModel.renderedFrame,
-                       viewModel.isSessionRunning {
-                        GeometryReader { geometry in
-                            let imageSize = CGSize(width: frame.width, height: frame.height)
-                            let viewSize = geometry.size
-                            
-                            // 计算scaledToFill的缩放比例和偏移
-                            let scale = max(viewSize.width / imageSize.width, viewSize.height / imageSize.height)
-                            let scaledSize = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
-                            let offsetX = (scaledSize.width - viewSize.width) / 2
-                            let offsetY = (scaledSize.height - viewSize.height) / 2
-                            
-                            // 主人物质心
-                            if let center = viewModel.personCenter {
-                                let uiKitY = imageSize.height - center.y
-                                let screenX = center.x * scale - offsetX
-                                let screenY = uiKitY * scale - offsetY
-                                
-                                CenterPointView(
-                                    color: .red,
-                                    isSelected: viewModel.selectedCloneId == nil,
-                                    label: "主"
-                                )
-                                .position(x: screenX, y: screenY)
-                                .highPriorityGesture(
-                                    DragGesture(minimumDistance: 0)
-                                        .onChanged { value in
-                                            viewModel.selectClone(id: nil)
-                                            let imageX = (value.location.x + offsetX) / scale
-                                            let imageY = (value.location.y + offsetY) / scale
-                                            let flippedY = imageSize.height - imageY
-                                            let imagePoint = CGPoint(x: imageX, y: flippedY)
-                                            viewModel.updateManualPersonCenter(imagePoint, imageSize: imageSize)
-                                        }
-                                )
-                            }
-                            
-                            // 分身质心
-                            ForEach(viewModel.clones) { clone in
-                                let uiKitY = imageSize.height - clone.center.y
-                                let screenX = clone.center.x * scale - offsetX
-                                let screenY = uiKitY * scale - offsetY
-                                let cloneIndex = viewModel.clones.firstIndex(where: { $0.id == clone.id }) ?? 0
-                                
-                                CenterPointView(
-                                    color: .blue,
-                                    isSelected: viewModel.selectedCloneId == clone.id,
-                                    label: "\(cloneIndex + 1)"
-                                )
-                                .position(x: screenX, y: screenY)
-                                .highPriorityGesture(
-                                    DragGesture(minimumDistance: 0)
-                                        .onChanged { value in
-                                            viewModel.selectClone(id: clone.id)
-                                            let imageX = (value.location.x + offsetX) / scale
-                                            let imageY = (value.location.y + offsetY) / scale
-                                            let flippedY = imageSize.height - imageY
-                                            let imagePoint = CGPoint(x: imageX, y: flippedY)
-                                            viewModel.updateCloneCenter(id: clone.id, center: imagePoint, imageSize: imageSize)
-                                        }
-                                )
-                            }
-                            
-                            // 贴纸控制点
-                            ForEach(viewModel.stickers) { sticker in
-                                let uiKitY = imageSize.height - sticker.center.y
-                                let screenX = sticker.center.x * scale - offsetX
-                                let screenY = uiKitY * scale - offsetY
-                                
-                                StickerControlView(
-                                    sticker: sticker,
-                                    isSelected: viewModel.selectedStickerId == sticker.id,
-                                    screenScale: scale
-                                )
-                                .position(x: screenX, y: screenY)
-                                .highPriorityGesture(
-                                    DragGesture(minimumDistance: 0)
-                                        .onChanged { value in
-                                            viewModel.selectSticker(id: sticker.id)
-                                            let imageX = (value.location.x + offsetX) / scale
-                                            let imageY = (value.location.y + offsetY) / scale
-                                            let flippedY = imageSize.height - imageY
-                                            let imagePoint = CGPoint(x: imageX, y: flippedY)
-                                            viewModel.updateStickerCenter(id: sticker.id, center: imagePoint, imageSize: imageSize)
-                                        }
-                                )
-                            }
-                        }
-                    }
-                }
+                .overlay(alignment: .topLeading) { debugHUD }
+                .overlay(alignment: .topTrailing) { savingIndicator }
+                .overlay { interactionOverlay }
 
-            // 左侧控制列（只占据上半部分，不遮挡底部控制栏）
+            // 左侧控制列
             VStack {
                 HStack {
                     if viewModel.authorizationStatus == .authorized && viewModel.isSessionRunning {
-                        SideControlPanelView(viewModel: viewModel)
-                            .padding(.leading, 8)
-                            .padding(.top, 100)
+                        SideControlPanelView(
+                            cloneVM: viewModel.cloneVM,
+                            stickerVM: viewModel.stickerVM,
+                            filterVM: viewModel.filterVM,
+                            personCenter: viewModel.personCenter
+                        )
+                        .padding(.leading, 8)
+                        .padding(.top, 100)
                     }
                     Spacer()
                 }
-                Spacer()
-                    .frame(height: 180) // 为底部控制栏预留空间
+                Spacer().frame(height: 180)
             }
-            
+
+            // 底部控制栏
             VStack {
                 Spacer()
                 if viewModel.authorizationStatus == .authorized {
                     ControlPanelView(viewModel: viewModel, showAdvancedControls: $showAdvancedControlsForOnboarding)
                 } else {
-                    PermissionView(requestAction: {
-                        viewModel.requestPermission()
-                    })
-                    .padding()
+                    PermissionView(requestAction: { viewModel.requestPermission() })
+                        .padding()
                 }
             }
-            
-            // 新手帮助覆盖层
-            if !hasCompletedOnboarding && onboardingStep > 0 && viewModel.isSessionRunning {
-                if let center = viewModel.personCenter,
-                   let frame = viewModel.renderedFrame {
-                    GeometryReader { geometry in
-                        let imageSize = CGSize(width: frame.width, height: frame.height)
-                        let viewSize = geometry.size
-                        let scale = max(viewSize.width / imageSize.width, viewSize.height / imageSize.height)
-                        let scaledSize = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
-                        let offsetX = (scaledSize.width - viewSize.width) / 2
-                        let offsetY = (scaledSize.height - viewSize.height) / 2
-                        
-                        OnboardingGuideView(
-                            currentStep: $onboardingStep,
-                            isCompleted: $hasCompletedOnboarding,
-                            personCenter: center,
-                            viewSize: viewSize,
-                            imageSize: imageSize,
-                            scale: scale,
-                            offsetX: offsetX,
-                            offsetY: offsetY
-                        )
-                    }
+
+            // 新手引导
+            if !hasCompletedOnboarding && onboardingStep > 0 && viewModel.isSessionRunning,
+               let center = viewModel.personCenter,
+               let frame = viewModel.renderedFrame {
+                GeometryReader { geo in
+                    let cs = ImageCoordinateSpace(
+                        imageSize: CGSize(width: frame.width, height: frame.height),
+                        viewSize: geo.size
+                    )
+                    OnboardingGuideView(
+                        currentStep: $onboardingStep,
+                        isCompleted: $hasCompletedOnboarding,
+                        personCenter: center,
+                        viewSize: geo.size,
+                        imageSize: CGSize(width: frame.width, height: frame.height),
+                        scale: cs.scale,
+                        offsetX: cs.offsetX,
+                        offsetY: cs.offsetY
+                    )
                 }
             }
-            
-            // 保存成功/失败庆祝动画
+
+            // 保存庆祝动画
             if viewModel.showSaveCelebration, let success = viewModel.lastSaveSuccess {
                 SaveSuccessCelebrationView(isSuccess: success) {
                     viewModel.dismissSaveCelebration()
+                }
+            }
+
+            // 录像保存庆祝动画
+            if viewModel.recordingVM.showSaveCelebration,
+               let success = viewModel.recordingVM.lastSaveSuccess {
+                SaveSuccessCelebrationView(isSuccess: success) {
+                    viewModel.recordingVM.dismissCelebration()
                 }
             }
         }
@@ -223,111 +86,221 @@ struct ContentView: View {
         .gesture(
             MagnificationGesture(minimumScaleDelta: 0.01)
                 .onChanged { value in
-                    if initialZoom == 1.0 {
-                        initialZoom = viewModel.currentZoom
-                    }
+                    if initialZoom == 1.0 { initialZoom = viewModel.currentZoom }
                     viewModel.updateZoomByScale(value, initialZoom: initialZoom)
                 }
-                .onEnded { _ in
-                    initialZoom = 1.0
-                }
+                .onEnded { _ in initialZoom = 1.0 }
         )
         .onAppear {
             viewModel.onAppear()
-            // 首次进入时启动新手帮助
             if !hasCompletedOnboarding && viewModel.authorizationStatus == .authorized {
-                // 等待相机启动后再显示帮助
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     if viewModel.isSessionRunning && viewModel.personCenter != nil {
                         onboardingStep = 1
-                        // 步骤3需要显示高级控件
-                        if onboardingStep == 3 {
-                            showAdvancedControlsForOnboarding = true
-                        }
                     }
                 }
             }
         }
         .onChange(of: onboardingStep) { newStep in
-            // 步骤3需要显示高级控件
-            if newStep == 3 {
-                showAdvancedControlsForOnboarding = true
-            }
+            if newStep == 3 { showAdvancedControlsForOnboarding = true }
         }
-        .onDisappear {
-            viewModel.onDisappear()
+        .onDisappear { viewModel.onDisappear() }
+    }
+
+    // MARK: - 子视图
+
+    @ViewBuilder
+    private var debugHUD: some View {
+        if viewModel.isSessionRunning {
+            HStack(spacing: 8) {
+                // FPS 胶囊
+                Text("\(Int(viewModel.currentFPS)) FPS")
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .liquidGlassCapsule()
+
+                // 缩放倍数
+                Text("\(String(format: "%.1f", viewModel.currentZoom))×")
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.85))
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .liquidGlassCapsule()
+            }
+            .padding(.top, 56)
+            .padding(.leading, 16)
+        }
+    }
+
+    @ViewBuilder
+    private var savingIndicator: some View {
+        if viewModel.isSaving {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .scaleEffect(0.75)
+                    .tint(.white)
+                Text("保存中...")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .liquidGlassCapsule()
+            .padding(.top, 56)
+            .padding(.trailing, 16)
+            .transition(.scale(scale: 0.85).combined(with: .opacity))
+        }
+    }
+
+    @ViewBuilder
+    private var interactionOverlay: some View {
+        if let frame = viewModel.renderedFrame, viewModel.isSessionRunning {
+            GeometryReader { geo in
+                let cs = ImageCoordinateSpace(
+                    imageSize: CGSize(width: frame.width, height: frame.height),
+                    viewSize: geo.size
+                )
+
+                // 主人物质心
+                if let center = viewModel.personCenter {
+                    let screenPt = cs.toScreen(center)
+                    CenterPointView(
+                        color: .red,
+                        isSelected: viewModel.cloneVM.selectedCloneId == nil,
+                        label: "主"
+                    )
+                    .position(screenPt)
+                    .highPriorityGesture(
+                        DragGesture(minimumDistance: 0).onChanged { value in
+                            viewModel.cloneVM.select(id: nil)
+                            viewModel.updateManualPersonCenter(
+                                cs.toImage(value.location),
+                                imageSize: cs.imageSize
+                            )
+                        }
+                    )
+                }
+
+                // 分身质心
+                ForEach(viewModel.cloneVM.clones) { clone in
+                    let screenPt = cs.toScreen(clone.center)
+                    let idx = viewModel.cloneVM.clones.firstIndex(where: { $0.id == clone.id }) ?? 0
+                    CenterPointView(
+                        color: .blue,
+                        isSelected: viewModel.cloneVM.selectedCloneId == clone.id,
+                        label: "\(idx + 1)"
+                    )
+                    .position(screenPt)
+                    .highPriorityGesture(
+                        DragGesture(minimumDistance: 0).onChanged { value in
+                            viewModel.cloneVM.select(id: clone.id)
+                            viewModel.cloneVM.updateCenter(
+                                id: clone.id,
+                                center: cs.toImage(value.location),
+                                imageSize: cs.imageSize
+                            )
+                        }
+                    )
+                }
+
+                // 贴纸控制点
+                ForEach(viewModel.stickerVM.stickers) { sticker in
+                    let screenPt = cs.toScreen(sticker.center)
+                    StickerControlView(
+                        sticker: sticker,
+                        isSelected: viewModel.stickerVM.selectedStickerId == sticker.id,
+                        screenScale: cs.scale
+                    )
+                    .position(screenPt)
+                    .highPriorityGesture(
+                        DragGesture(minimumDistance: 0).onChanged { value in
+                            viewModel.stickerVM.select(id: sticker.id)
+                            viewModel.stickerVM.updateCenter(
+                                id: sticker.id,
+                                center: cs.toImage(value.location),
+                                imageSize: cs.imageSize
+                            )
+                        }
+                    )
+                }
+            }
         }
     }
 }
 
-// MARK: - 质心点视图组件
+// MARK: - 质心点视图
 
 struct CenterPointView: View {
     let color: Color
     let isSelected: Bool
     let label: String
-    
+    @State private var dragging = false
+
     var body: some View {
         ZStack {
-            // 外圈（选中时显示）
+            // 选中光晕
             if isSelected {
                 Circle()
-                    .stroke(color.opacity(0.5), lineWidth: 2)
-                    .frame(width: 32, height: 32)
+                    .fill(color.opacity(0.18))
+                    .frame(width: 44, height: 44)
+                    .blur(radius: 4)
+
+                Circle()
+                    .stroke(color.opacity(0.5), lineWidth: 1.5)
+                    .frame(width: 34, height: 34)
             }
-            
+
             // 中心点
             Circle()
                 .fill(color)
-                .frame(width: 12, height: 12)
+                .frame(width: 14, height: 14)
                 .overlay {
                     Circle()
-                        .stroke(Color.white, lineWidth: 2)
-                        .frame(width: 18, height: 18)
+                        .stroke(Color.white, lineWidth: 2.5)
+                        .frame(width: 20, height: 20)
                 }
-            
+                .shadow(color: color.opacity(0.6), radius: 6)
+
             // 标签
             Text(label)
-                .font(.system(size: 8, weight: .bold))
+                .font(.system(size: 9, weight: .bold))
                 .foregroundColor(.white)
-                .offset(y: 20)
+                .offset(y: 22)
         }
+        .scaleEffect(dragging ? 1.25 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: dragging)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in dragging = true }
+                .onEnded { _ in dragging = false }
+        )
     }
 }
 
-// MARK: - 贴纸控制视图组件
+// MARK: - 贴纸控制视图
 
 struct StickerControlView: View {
     let sticker: StickerInstance
     let isSelected: Bool
     let screenScale: CGFloat
-    
+
     var body: some View {
         let stickerColor = Color(
             red: sticker.type.color.r,
             green: sticker.type.color.g,
             blue: sticker.type.color.b
         )
-        
         ZStack {
-            // 选中边框
             if isSelected {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(Color.orange, lineWidth: 2)
                     .frame(width: 60, height: 60)
             }
-            
-            // 拖动指示器（小圆点）
             Circle()
                 .fill(isSelected ? Color.orange : Color.white.opacity(0.6))
                 .frame(width: 16, height: 16)
                 .overlay {
-                    Circle()
-                        .stroke(Color.white, lineWidth: 2)
-                        .frame(width: 20, height: 20)
+                    Circle().stroke(Color.white, lineWidth: 2).frame(width: 20, height: 20)
                 }
-            
-            // 贴纸图标（小预览）
             Image(systemName: sticker.type.rawValue)
                 .font(.system(size: 12))
                 .foregroundColor(stickerColor)
@@ -335,4 +308,3 @@ struct StickerControlView: View {
         }
     }
 }
-

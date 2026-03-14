@@ -142,14 +142,18 @@ final class PersonSegmentationRenderer {
         //     ])
         //     .cropped(to: cameraImage.extent)
 
-        // --- 整张图生成超模糊版本（用于填补人物区域） ---
-        // 【优化】使用 CILanczosScaleTransform 替代手动 transform，质量更好
-        // 同时减少缩放倍数，使用 0.25 和 4.0（整数倍效率更高）
-        let ultraBlurred = cameraImage
-            .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 0.25])
-            .applyingFilter("CIBoxBlur", parameters: [kCIInputRadiusKey: 10])
-            .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 4.0])
-            .cropped(to: cameraImage.extent)
+        // --- 整张图生成超模糊版本（仅在有分身或贴纸时才需要，用于填补人物区域） ---
+        let needsUltraBlur = !clones.isEmpty || !stickers.isEmpty
+        let ultraBlurred: CIImage
+        if needsUltraBlur {
+            ultraBlurred = cameraImage
+                .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 0.25])
+                .applyingFilter("CIBoxBlur", parameters: [kCIInputRadiusKey: 10])
+                .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 4.0])
+                .cropped(to: cameraImage.extent)
+        } else {
+            ultraBlurred = cameraImage
+        }
 
 
         // --- 使用 invertedMask 把超模糊图贴到“人物区域” ---
@@ -213,37 +217,32 @@ final class PersonSegmentationRenderer {
                 .cropped(to: targetRect)
         }
         
-        // 清理已删除分身的快照缓存
+        // 清理已删除分身的快照缓存（用 Set 避免每帧 O(n²) filter）
         let currentCloneIds = Set(clones.map { $0.id })
-        frozenCloneSnapshots = frozenCloneSnapshots.filter { currentCloneIds.contains($0.key) }
+        for key in frozenCloneSnapshots.keys where !currentCloneIds.contains(key) {
+            frozenCloneSnapshots.removeValue(forKey: key)
+        }
         
-        // --- 渲染贴纸（叠加在最上层） ---
+        // --- 渲染贴纸（叠加在最上层，跳过离屏贴纸） ---
         for sticker in stickers {
             if let stickerImage = getStickerImage(for: sticker.type) {
                 // 计算目标贴纸大小
                 let targetSize: CGFloat = 120 * sticker.scale
                 let originalSize = max(stickerImage.extent.width, stickerImage.extent.height)
                 let stickerScale = targetSize / originalSize
-                
-                // 先将贴纸原点移到中心，然后缩放和旋转，最后移到目标位置
-                let originalCenter = CGPoint(
-                    x: stickerImage.extent.midX,
-                    y: stickerImage.extent.midY
-                )
-                
-                // 变换序列：移到原点 -> 缩放 -> 旋转 -> 移到目标位置
+
+                let originalCenter = CGPoint(x: stickerImage.extent.midX, y: stickerImage.extent.midY)
                 let toOrigin = CGAffineTransform(translationX: -originalCenter.x, y: -originalCenter.y)
                 let scale = CGAffineTransform(scaleX: stickerScale, y: stickerScale)
                 let rotate = CGAffineTransform(rotationAngle: sticker.rotation)
                 let toTarget = CGAffineTransform(translationX: sticker.center.x, y: sticker.center.y)
-                
-                let finalTransform = toOrigin
-                    .concatenating(scale)
-                    .concatenating(rotate)
-                    .concatenating(toTarget)
-                
+                let finalTransform = toOrigin.concatenating(scale).concatenating(rotate).concatenating(toTarget)
+
                 let positionedSticker = stickerImage.transformed(by: finalTransform)
-                
+
+                // 离屏剔除：贴纸完全在画面外则跳过合成
+                guard positionedSticker.extent.intersects(targetRect) else { continue }
+
                 composited = positionedSticker
                     .composited(over: composited)
                     .cropped(to: targetRect)

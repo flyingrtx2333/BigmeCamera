@@ -10,11 +10,12 @@ final class VideoRecordingService {
     private var assetWriter: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
     private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
-    
+    private var pixelBufferPool: CVPixelBufferPool?
+
     private var isRecording = false
     private var startTime: CMTime?
     private var currentTime: CMTime = .zero
-    
+
     private var videoSize: CGSize = CGSize(width: 1080, height: 1920)
     private var tempFileURL: URL?
     
@@ -66,17 +67,19 @@ final class VideoRecordingService {
                 self.videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
                 self.videoInput?.expectsMediaDataInRealTime = true
                 
-                // 创建 PixelBuffer 适配器
+                // 创建 PixelBuffer 适配器（含 pool，避免每帧 malloc）
                 let sourcePixelBufferAttributes: [String: Any] = [
                     kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
                     kCVPixelBufferWidthKey as String: Int(videoSize.width),
-                    kCVPixelBufferHeightKey as String: Int(videoSize.height)
+                    kCVPixelBufferHeightKey as String: Int(videoSize.height),
+                    kCVPixelBufferIOSurfacePropertiesKey as String: [:]
                 ]
-                
+
                 self.pixelBufferAdaptor = AVAssetWriterInputPixelBufferAdaptor(
                     assetWriterInput: self.videoInput!,
                     sourcePixelBufferAttributes: sourcePixelBufferAttributes
                 )
+                self.pixelBufferPool = self.pixelBufferAdaptor?.pixelBufferPool
                 
                 if self.assetWriter!.canAdd(self.videoInput!) {
                     self.assetWriter!.add(self.videoInput!)
@@ -164,6 +167,7 @@ final class VideoRecordingService {
                 self.assetWriter = nil
                 self.videoInput = nil
                 self.pixelBufferAdaptor = nil
+                self.pixelBufferPool = nil
                 self.startTime = nil
             }
         }
@@ -179,29 +183,30 @@ final class VideoRecordingService {
     private func createPixelBuffer(from cgImage: CGImage) -> CVPixelBuffer? {
         let width = cgImage.width
         let height = cgImage.height
-        
+
         var pixelBuffer: CVPixelBuffer?
-        let attrs: [CFString: Any] = [
-            kCVPixelBufferCGImageCompatibilityKey: true,
-            kCVPixelBufferCGBitmapContextCompatibilityKey: true
-        ]
-        
-        let status = CVPixelBufferCreate(
-            kCFAllocatorDefault,
-            width,
-            height,
-            kCVPixelFormatType_32BGRA,
-            attrs as CFDictionary,
-            &pixelBuffer
-        )
-        
-        guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
-            return nil
+
+        // 优先从 pool 取，避免每帧 malloc
+        if let pool = pixelBufferPool {
+            CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
         }
-        
+
+        // pool 不可用时回退到直接创建
+        if pixelBuffer == nil {
+            let attrs: [CFString: Any] = [
+                kCVPixelBufferCGImageCompatibilityKey: true,
+                kCVPixelBufferCGBitmapContextCompatibilityKey: true,
+                kCVPixelBufferIOSurfacePropertiesKey: [:]
+            ]
+            CVPixelBufferCreate(kCFAllocatorDefault, width, height,
+                                kCVPixelFormatType_32BGRA, attrs as CFDictionary, &pixelBuffer)
+        }
+
+        guard let buffer = pixelBuffer else { return nil }
+
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
-        
+
         guard let context = CGContext(
             data: CVPixelBufferGetBaseAddress(buffer),
             width: width,
@@ -210,15 +215,12 @@ final class VideoRecordingService {
             bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-        ) else {
-            return nil
-        }
-        
-        // 翻转坐标系
+        ) else { return nil }
+
         context.translateBy(x: 0, y: CGFloat(height))
         context.scaleBy(x: 1, y: -1)
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-        
+
         return buffer
     }
     
