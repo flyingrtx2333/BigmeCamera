@@ -47,7 +47,10 @@ final class CameraViewModel: ObservableObject {
         authorizationStatus = cameraService.currentAuthorizationStatus()
         cameraService.sampleBufferHandler = { [weak self] sampleBuffer in
             guard let self else { return }
-            Task { @MainActor in
+            // 在 videoOutputQueue 上直接 dispatch 到 main 读取状态快照，
+            // 避免每帧创建 Swift Task（有分配开销）
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
                 self.handle(
                     sampleBuffer: sampleBuffer,
                     config: self.config,

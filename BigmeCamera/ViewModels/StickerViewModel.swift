@@ -15,8 +15,15 @@ final class StickerViewModel: ObservableObject {
     }
 
     func remove(id: UUID) {
+        if selectedStickerId == id {
+            if let idx = stickers.firstIndex(where: { $0.id == id }) {
+                let next = stickers.indices.contains(idx + 1) ? stickers[idx + 1].id
+                         : idx > 0 ? stickers[idx - 1].id
+                         : nil
+                selectedStickerId = next
+            }
+        }
         stickers.removeAll { $0.id == id }
-        if selectedStickerId == id { selectedStickerId = stickers.last?.id }
     }
 
     func removeAll() {

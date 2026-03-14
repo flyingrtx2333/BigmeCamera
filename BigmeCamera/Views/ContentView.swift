@@ -23,7 +23,8 @@ struct ContentView: View {
                             cloneVM: viewModel.cloneVM,
                             stickerVM: viewModel.stickerVM,
                             filterVM: viewModel.filterVM,
-                            personCenter: viewModel.personCenter
+                            personCenter: viewModel.personCenter,
+                            personScale: viewModel.config.personScale
                         )
                         .padding(.leading, 8)
                         .padding(.top, 100)
@@ -181,9 +182,8 @@ struct ContentView: View {
                 }
 
                 // 分身质心
-                ForEach(viewModel.cloneVM.clones) { clone in
+                ForEach(Array(viewModel.cloneVM.clones.enumerated()), id: \.element.id) { idx, clone in
                     let screenPt = cs.toScreen(clone.center)
-                    let idx = viewModel.cloneVM.clones.firstIndex(where: { $0.id == clone.id }) ?? 0
                     CenterPointView(
                         color: .blue,
                         isSelected: viewModel.cloneVM.selectedCloneId == clone.id,

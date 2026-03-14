@@ -5,6 +5,7 @@ struct SideControlPanelView: View {
     @ObservedObject var stickerVM: StickerViewModel
     @ObservedObject var filterVM: FilterViewModel
     var personCenter: CGPoint?
+    var personScale: CGFloat = 1.0  // 新分身继承当前人物缩放比例
 
     @State private var selectedCategory: ControlCategory? = nil
     @State private var selectedStickerCategory: StickerCategory = .emotion
@@ -141,7 +142,7 @@ struct SideControlPanelView: View {
                 Spacer()
                 Button {
                     if let center = personCenter {
-                        cloneVM.add(near: center, scale: 1.0)
+                        cloneVM.add(near: center, scale: personScale)
                     }
                 } label: {
                     HStack(spacing: 4) {

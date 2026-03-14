@@ -117,8 +117,10 @@ final class StyleService {
     private var reusableInputBuffer: CVPixelBuffer?
     
     
-    /// 线程安全锁
+    /// 缓存锁（保护 cachedStyledImage / frameCounter 等渲染缓存）
     private let lock = NSLock()
+    /// 模型字典锁（modelCache 从 renderQueue 读、从 main 写，需独立保护）
+    private let modelLock = NSLock()
     
     // MARK: - 初始化
     
@@ -192,35 +194,46 @@ final class StyleService {
     
     /// 预加载指定风格的模型
     func preloadModel(for style: FilterStyle) {
-        guard style != .none, modelCache[style] == nil, !loadingStyles.contains(style) else { return }
-        
+        modelLock.lock()
+        let alreadyLoaded = modelCache[style] != nil
+        let alreadyLoading = loadingStyles.contains(style)
+        modelLock.unlock()
+
+        guard style != .none, !alreadyLoaded, !alreadyLoading else { return }
+
+        modelLock.lock()
         loadingStyles.insert(style)
-        
+        modelLock.unlock()
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            
+
             if let model = self.loadModel(for: style) {
-                DispatchQueue.main.async {
-                    self.modelCache[style] = model
-                    self.loadingStyles.remove(style)
-                    print("✅ 模型加载成功: \(style.displayName)")
-                }
+                self.modelLock.lock()
+                self.modelCache[style] = model
+                self.loadingStyles.remove(style)
+                self.modelLock.unlock()
+                print("✅ 模型加载成功: \(style.displayName)")
             } else {
-                DispatchQueue.main.async {
-                    self.loadingStyles.remove(style)
-                    print("❌ 模型加载失败: \(style.displayName)")
-                }
+                self.modelLock.lock()
+                self.loadingStyles.remove(style)
+                self.modelLock.unlock()
+                print("❌ 模型加载失败: \(style.displayName)")
             }
         }
     }
-    
+
     /// 检查模型是否已加载
     func isModelLoaded(for style: FilterStyle) -> Bool {
+        modelLock.lock()
+        defer { modelLock.unlock() }
         return style == .none || modelCache[style] != nil
     }
     
     /// 检查模型是否正在加载
     func isModelLoading(for style: FilterStyle) -> Bool {
+        modelLock.lock()
+        defer { modelLock.unlock() }
         return loadingStyles.contains(style)
     }
     
@@ -234,8 +247,12 @@ final class StyleService {
             clearCache()
             return image
         }
-        
-        guard let model = modelCache[style] else {
+
+        modelLock.lock()
+        let model = modelCache[style]
+        modelLock.unlock()
+
+        guard let model else {
             preloadModel(for: style)
             return image
         }
@@ -298,7 +315,7 @@ final class StyleService {
         let config = MLModelConfiguration()
         config.computeUnits = .all
         
-        // 允许低精度计算以提升性能
+        // 允许低精度计算以提升性能（私有 KVC key，iOS 16+ 有效，未来版本可能失效）
         if #available(iOS 16.0, *) {
             config.setValue(true, forKey: "allowLowPrecisionAccumulationOnGPU")
         }

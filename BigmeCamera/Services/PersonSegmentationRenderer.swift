@@ -2,6 +2,7 @@ import AVFoundation
 import CoreGraphics
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import Metal
 import Vision
 import UIKit
 
@@ -11,7 +12,16 @@ struct RenderResult {
 }
 
 final class PersonSegmentationRenderer {
-    private let context = CIContext()
+    // Metal 加速的 CIContext，与 StyleService 保持一致
+    private let context: CIContext = {
+        if let device = MTLCreateSystemDefaultDevice() {
+            return CIContext(mtlDevice: device, options: [
+                .cacheIntermediates: false,
+                .highQualityDownsample: false
+            ])
+        }
+        return CIContext(options: [.useSoftwareRenderer: false])
+    }()
     private let request: VNGeneratePersonSegmentationRequest
     private let sequenceHandler = VNSequenceRequestHandler()
 
@@ -56,6 +66,9 @@ final class PersonSegmentationRenderer {
         do {
             try sequenceHandler.perform([request], on: pixelBuffer, orientation: .up)
         } catch {
+            #if DEBUG
+            print("⚠️ Segmentation error: \(error)")
+            #endif
             return nil
         }
 

@@ -15,8 +15,16 @@ final class CloneViewModel: ObservableObject {
     }
 
     func remove(id: UUID) {
+        if selectedCloneId == id {
+            // 选中相邻项：优先选后一个，没有则选前一个
+            if let idx = clones.firstIndex(where: { $0.id == id }) {
+                let next = clones.indices.contains(idx + 1) ? clones[idx + 1].id
+                         : idx > 0 ? clones[idx - 1].id
+                         : nil
+                selectedCloneId = next
+            }
+        }
         clones.removeAll { $0.id == id }
-        if selectedCloneId == id { selectedCloneId = clones.last?.id }
     }
 
     func removeAll() {

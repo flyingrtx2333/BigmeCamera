@@ -16,10 +16,23 @@ struct RingBuffer<T> {
         if count < capacity { count += 1 }
     }
 
+    /// 统计满足条件的元素数量（只遍历已写入的槽）
     func count(where predicate: (T) -> Bool) -> Int {
         storage.reduce(0) { acc, item in
             guard let item else { return acc }
             return acc + (predicate(item) ? 1 : 0)
+        }
+    }
+
+    /// 遍历所有已写入的元素（按写入顺序，最旧→最新）
+    func forEach(_ body: (T) -> Void) {
+        guard count > 0 else { return }
+        // 如果未满，从 0 开始；已满则从 writeIndex（最旧）开始
+        let start = count < capacity ? 0 : writeIndex
+        for i in 0..<count {
+            if let item = storage[(start + i) % capacity] {
+                body(item)
+            }
         }
     }
 }
