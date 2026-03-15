@@ -3,6 +3,8 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var viewModel: CameraViewModel
     @State private var initialZoom: CGFloat = 1.0
+    @State private var mainDotDragging = false
+    @State private var cloneDragging: [UUID: Bool] = [:]
 
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var onboardingStep: Int = 0
@@ -172,17 +174,21 @@ struct ContentView: View {
                     CenterPointView(
                         color: Color.accentAmber,
                         isSelected: viewModel.cloneVM.selectedCloneId == nil,
-                        label: "主"
+                        label: "主",
+                        isDragging: mainDotDragging
                     )
                     .position(screenPt)
                     .highPriorityGesture(
-                        DragGesture(minimumDistance: 0).onChanged { value in
-                            viewModel.cloneVM.select(id: nil)
-                            viewModel.updateManualPersonCenter(
-                                cs.toImage(value.location),
-                                imageSize: cs.imageSize
-                            )
-                        }
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                mainDotDragging = true
+                                viewModel.cloneVM.select(id: nil)
+                                viewModel.updateManualPersonCenter(
+                                    cs.toImage(value.location),
+                                    imageSize: cs.imageSize
+                                )
+                            }
+                            .onEnded { _ in mainDotDragging = false }
                     )
                 }
 
@@ -192,18 +198,22 @@ struct ContentView: View {
                     CenterPointView(
                         color: .blue,
                         isSelected: viewModel.cloneVM.selectedCloneId == clone.id,
-                        label: "\(idx + 1)"
+                        label: "\(idx + 1)",
+                        isDragging: cloneDragging[clone.id] ?? false
                     )
                     .position(screenPt)
                     .highPriorityGesture(
-                        DragGesture(minimumDistance: 0).onChanged { value in
-                            viewModel.cloneVM.select(id: clone.id)
-                            viewModel.cloneVM.updateCenter(
-                                id: clone.id,
-                                center: cs.toImage(value.location),
-                                imageSize: cs.imageSize
-                            )
-                        }
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                cloneDragging[clone.id] = true
+                                viewModel.cloneVM.select(id: clone.id)
+                                viewModel.cloneVM.updateCenter(
+                                    id: clone.id,
+                                    center: cs.toImage(value.location),
+                                    imageSize: cs.imageSize
+                                )
+                            }
+                            .onEnded { _ in cloneDragging[clone.id] = false }
                     )
                 }
 
@@ -238,10 +248,15 @@ struct CenterPointView: View {
     let color: Color
     let isSelected: Bool
     let label: String
-    @State private var dragging = false
+    let isDragging: Bool
 
     var body: some View {
         ZStack {
+            // 不可见的大触控区，确保 44×44 最小点击目标
+            Circle()
+                .fill(Color.clear)
+                .frame(width: 44, height: 44)
+
             // 选中光晕
             if isSelected {
                 Circle()
@@ -271,13 +286,9 @@ struct CenterPointView: View {
                 .foregroundColor(.white)
                 .offset(y: 22)
         }
-        .scaleEffect(dragging ? 1.25 : 1.0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: dragging)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in dragging = true }
-                .onEnded { _ in dragging = false }
-        )
+        .contentShape(Circle().size(CGSize(width: 44, height: 44)))
+        .scaleEffect(isDragging ? 1.25 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isDragging)
     }
 }
 

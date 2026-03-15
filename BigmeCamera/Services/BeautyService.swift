@@ -1,6 +1,4 @@
 import CoreImage
-import MetalPetal
-import Metal
 
 struct BeautyConfig {
     var smoothness: CGFloat = 0.0
@@ -10,16 +8,7 @@ struct BeautyConfig {
 }
 
 final class BeautyService {
-    private let mtiContext: MTIContext
-    private let ciContext = CIContext(options: nil)
-
-    init() {
-        guard let device = MTLCreateSystemDefaultDevice(),
-              let context = try? MTIContext(device: device) else {
-            fatalError("无法创建 MTIContext")
-        }
-        self.mtiContext = context
-    }
+    init() {}
 
     // MARK: - 主处理入口
     func applyBeauty(to image: CIImage, config: BeautyConfig) -> CIImage {

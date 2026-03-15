@@ -80,11 +80,14 @@ final class PersonSegmentationRenderer {
         let maskBuffer = result.pixelBuffer
 
         // --- mask 清洗 ---
-        var maskImage = CIImage(cvPixelBuffer: maskBuffer)
-        maskImage = maskImage
+        // 【性能优化】先在 Vision 小尺寸 mask 上跑 Morphology，再 resize 到相机帧尺寸。
+        // Vision 输出约为相机帧的 1/8~1/10，像素量差约 64~100 倍，运算量大幅减少。
+        // radius=1 在小尺寸上等效全尺寸约 8-10px 膨胀，足以填充发丝/边缘空洞。
+        // CIMorphologyMinimum 在此尺寸下 radius=1 等效全尺寸腐蚀 ~10px，会过度抵消膨胀，故去掉。
+        let maskCIImage = CIImage(cvPixelBuffer: maskBuffer)
+        var maskImage = maskCIImage
+            .applyingFilter("CIMorphologyMaximum", parameters: ["inputRadius": 1])
             .resize(to: cameraImage.extent.size)
-            .applyingFilter("CIMorphologyMaximum", parameters: ["inputRadius": 6])   // 例如 6-12
-            .applyingFilter("CIMorphologyMinimum", parameters: ["inputRadius": 1])
         
         // --- Mask 断帧保护：每 10 帧做一次健康检查 ---
         frameCount += 1
