@@ -111,42 +111,36 @@ final class PersonSegmentationRenderer {
             ])
             .cropped(to: cameraImage.extent)
 
-        // --- 纯背景，完全移除人物，绝无残影 ---
-        // let backgroundOnly = cameraImage
-        //     .applyingFilter("CIBlendWithMask", parameters: [
-        //         kCIInputBackgroundImageKey: CIImage(color: .clear).cropped(to: cameraImage.extent),
-        //         kCIInputMaskImageKey: invertedMask
-        //     ])
-        //     .cropped(to: cameraImage.extent)
+        // --- 液态玻璃背景填充（始终启用，消除人物原始位置残影）---
+        //
+        // 原理：下采样到 1/16 再模糊，像素级别的人物轮廓被彻底抹除，
+        // 只剩场景环境色调；叠加半透明冷白光层形成液态玻璃质感；
+        // 最后用软化后的人物 mask 将玻璃填充混合进背景。
+        //
+        // 步骤 1：极度模糊 → 彻底消除人物轮廓，保留环境色调
+        let ambientFill = cameraImage
+            .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 0.0625]) // 1/16
+            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 6])
+            .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 16.0])
+            .cropped(to: cameraImage.extent)
 
-        // --- 整张图生成超模糊版本（仅在有分身或贴纸时才需要，用于填补人物区域） ---
-        let needsUltraBlur = !clones.isEmpty || !stickers.isEmpty
-        let ultraBlurred: CIImage
-        if needsUltraBlur {
-            ultraBlurred = cameraImage
-                .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 0.25])
-                .applyingFilter("CIBoxBlur", parameters: [kCIInputRadiusKey: 10])
-                .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 4.0])
-                .cropped(to: cameraImage.extent)
-        } else {
-            ultraBlurred = cameraImage
-        }
+        // 步骤 2：叠加冷白玻璃光（alpha 0.22，营造液态玻璃质感）
+        let glassTint = CIImage(color: CIColor(red: 0.93, green: 0.96, blue: 1.0, alpha: 0.22))
+            .cropped(to: cameraImage.extent)
+        let liquidGlassFill = glassTint.composited(over: ambientFill)
 
-
-        // --- 使用 invertedMask 把超模糊图贴到“人物区域” ---
-        let backgroundOnly = cameraImage
+        // 步骤 3：softPersonMask（人物≈1，背景≈0）= softInvertedMask 取反
+        // 用它把液态玻璃填充混入人物区域，背景保持原始画面
+        let softPersonMask = softInvertedMask.applyingFilter("CIColorInvert")
+        let backgroundOnly = liquidGlassFill
             .applyingFilter("CIBlendWithMask", parameters: [
-                kCIInputBackgroundImageKey: ultraBlurred,
-                kCIInputMaskImageKey: softInvertedMask   // 人物区域 = 1 → 使用 ultraBlurred
+                kCIInputBackgroundImageKey: cameraImage,
+                kCIInputMaskImageKey: softPersonMask   // 1=人物区域→玻璃填充，0=背景→原始画面
             ])
             .cropped(to: cameraImage.extent)
 
-        // --- 背景模糊 ---
+        // --- 背景确定，后续直接使用 backgroundOnly ---
         let baseBackground = backgroundOnly
-            // .applyingFilter("CIBoxBlur", parameters: [
-            //     kCIInputRadiusKey: config.blurRadius / 2
-            // ])
-            // .composited(over: CIImage(color: .clear).cropped(to: cameraImage.extent))
 
         // ---- 使用自定义质心或默认中心 ----
         let personCenter = customCenter ?? CGPoint(x: cameraImage.extent.width / 2, y: cameraImage.extent.height / 2)
