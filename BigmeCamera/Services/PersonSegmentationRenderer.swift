@@ -26,19 +26,10 @@ final class PersonSegmentationRenderer {
     private let sequenceHandler = VNSequenceRequestHandler()
 
     // 性能与稳定性成员
-    private var lastMaskBufferSize: CGSize = .zero
-    private var lastPersonCenter: CGPoint?
-    private let centerSmoothAlpha: CGFloat = 0.18   // EMA 平滑系数，越小越稳定
-    
-    // Mask 断帧保护
-    private var lastValidMask: CIImage?
-    private var consecutiveMissingFrames: Int = 0
-    private let maxMissingFrames: Int = 8  // 最多允许连续丢失3帧
-    private let minForegroundRatio: CGFloat = 0.01  // 最小前景像素比例（1%）
-    
-    // 性能优化：每 10 帧做一次 mask 健康检查
-    private var frameCount: Int = 0
-    private var lastMaskValidState: Bool = true
+    // Vision 节流：每 visionInterval 帧才跑一次推理，其余帧复用上次 mask
+    private var visionFrameCount = 0
+    private let visionInterval = 3
+    private var lastMaskPixelBuffer: CVPixelBuffer?  // 持有强引用，防止 Vision 提前释放
 
     init() {
         request = VNGeneratePersonSegmentationRequest()
@@ -61,65 +52,35 @@ final class PersonSegmentationRenderer {
         request.qualityLevel = config.quality.requestLevel
 
         let cameraImage = CIImage(cvPixelBuffer: pixelBuffer)
-        
-        // 使用 VNSequenceRequestHandler（Apple 官方推荐用于视频处理）
-        do {
-            try sequenceHandler.perform([request], on: pixelBuffer, orientation: .up)
-        } catch {
-            #if DEBUG
-            print("⚠️ Segmentation error: \(error)")
-            #endif
-            return nil
-        }
 
-        guard let result = request.results?.first else {
-            return nil
-        }
+        // --- Vision 节流 ---
+        // 每 visionInterval 帧才跑一次推理；其余帧复用 lastMaskPixelBuffer。
+        // CVPixelBuffer 强引用保证 Vision 下次运行前数据不会被释放。
+        visionFrameCount += 1
+        let shouldRunVision = lastMaskPixelBuffer == nil || (visionFrameCount % visionInterval == 0)
 
-        // 直接使用 Vision 返回的 pixelBuffer（单通道灰度）
-        let maskBuffer = result.pixelBuffer
-
-        // --- mask 清洗 ---
-        // 【性能优化】先在 Vision 小尺寸 mask 上跑 Morphology，再 resize 到相机帧尺寸。
-        // Vision 输出约为相机帧的 1/8~1/10，像素量差约 64~100 倍，运算量大幅减少。
-        // radius=1 在小尺寸上等效全尺寸约 8-10px 膨胀，足以填充发丝/边缘空洞。
-        // CIMorphologyMinimum 在此尺寸下 radius=1 等效全尺寸腐蚀 ~10px，会过度抵消膨胀，故去掉。
-        let maskCIImage = CIImage(cvPixelBuffer: maskBuffer)
-        var maskImage = maskCIImage
-            .applyingFilter("CIMorphologyMaximum", parameters: ["inputRadius": 1])
-            .resize(to: cameraImage.extent.size)
-        
-        // --- Mask 断帧保护：每 10 帧做一次健康检查 ---
-        frameCount += 1
-        let shouldCheckHealth = (frameCount % 10 == 0)
-        
-        var isMaskValid = lastMaskValidState  // 默认使用上次检查的结果
-        
-        if shouldCheckHealth {
-            // 每 10 帧执行一次完整的健康检查
-            let foregroundRatio = calculateForegroundRatio(maskImage: maskImage)
-            isMaskValid = foregroundRatio >= minForegroundRatio
-            lastMaskValidState = isMaskValid
-        }
-        
-        if isMaskValid {
-            // Mask 有效，更新保存的有效 mask，重置丢失计数
-            lastValidMask = maskImage
-            consecutiveMissingFrames = 0
-        } else {
-            // Mask 丢失，尝试使用上一帧的有效 mask
-            consecutiveMissingFrames += 1
-            
-            if let lastMask = lastValidMask, consecutiveMissingFrames <= maxMissingFrames {
-                // 使用上一帧的有效 mask，并应用轻微衰减（避免长时间使用旧 mask）
-                let fadeFactor = CGFloat(consecutiveMissingFrames) / CGFloat(maxMissingFrames + 1)
-                maskImage = blendMasks(current: maskImage, previous: lastMask, fadeFactor: fadeFactor)
-            } else {
-                // 连续丢失超过阈值，或没有保存的有效 mask，使用当前（可能无效的）mask
-                // 这样可以避免完全黑屏，但效果可能不理想
-                consecutiveMissingFrames = maxMissingFrames + 1
+        if shouldRunVision {
+            do {
+                try sequenceHandler.perform([request], on: pixelBuffer, orientation: .up)
+            } catch {
+                #if DEBUG
+                print("⚠️ Segmentation error: \(error)")
+                #endif
+                return nil
+            }
+            // 有结果则更新，无结果（画面中无人）则继续沿用上一帧 mask
+            if let result = request.results?.first {
+                lastMaskPixelBuffer = result.pixelBuffer
             }
         }
+
+        guard let maskBuffer = lastMaskPixelBuffer else { return nil }
+
+        // --- mask 清洗（先在 Vision 小尺寸上做 Morphology，再 resize，减少运算量）---
+        let maskCIImage = CIImage(cvPixelBuffer: maskBuffer)
+        let maskImage = maskCIImage
+            .applyingFilter("CIMorphologyMaximum", parameters: ["inputRadius": 1])
+            .resize(to: cameraImage.extent.size)
 
         let invertedMask = maskImage.applyingFilter("CIColorInvert")
 
@@ -324,53 +285,6 @@ final class PersonSegmentationRenderer {
         return ciImage
     }
     
-    // MARK: - Mask 断帧保护辅助方法
-    
-    /// 计算前景像素比例，用于检测 mask 是否有效
-    /// 【优化】使用 CIAreaAverage 在 GPU 上直接计算平均亮度，避免 CPU 遍历像素
-    private func calculateForegroundRatio(maskImage: CIImage) -> CGFloat {
-        // 使用 CIAreaAverage 滤镜在 GPU 上计算整个 mask 的平均亮度
-        // 这比创建 CGImage 并遍历像素快得多
-        let averageFilter = CIFilter(name: "CIAreaAverage", parameters: [
-            kCIInputImageKey: maskImage,
-            kCIInputExtentKey: CIVector(cgRect: maskImage.extent)
-        ])
-        
-        guard let outputImage = averageFilter?.outputImage else {
-            return 0
-        }
-        
-        // 渲染 1x1 像素结果
-        var pixel = [UInt8](repeating: 0, count: 4)
-        context.render(outputImage,
-                      toBitmap: &pixel,
-                      rowBytes: 4,
-                      bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
-                      format: .RGBA8,
-                      colorSpace: CGColorSpaceCreateDeviceRGB())
-        
-        // 返回平均亮度作为前景比例的近似值
-        // 对于单通道 mask，R/G/B 值相同，取第一个即可
-        return CGFloat(pixel[0]) / 255.0
-    }
-    
-    /// 混合当前 mask 和上一帧的有效 mask，实现平滑过渡
-    /// 【优化】真正实现 mask 混合，使用 CIMix 滤镜在 GPU 上完成
-    private func blendMasks(current: CIImage, previous: CIImage, fadeFactor: CGFloat) -> CIImage {
-        // fadeFactor: 0.0 = 完全使用当前, 1.0 = 完全使用上一帧
-        let previousWeight = min(fadeFactor, 0.8)  // 最多80%权重给上一帧
-        
-        // 确保两个 mask 尺寸一致
-        let resizedPrevious = previous.resize(to: current.extent.size)
-        
-        // 使用 CIMix 滤镜进行加权混合（GPU 加速）
-        let blended = current.applyingFilter("CIMix", parameters: [
-            kCIInputBackgroundImageKey: resizedPrevious,
-            kCIInputAmountKey: previousWeight
-        ])
-        
-        return blended.cropped(to: current.extent)
-    }
 }
 
 private extension CIImage {
