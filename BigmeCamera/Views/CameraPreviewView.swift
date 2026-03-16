@@ -1,16 +1,13 @@
 import SwiftUI
 
 struct CameraPreviewView: View {
-    let frame: CGImage?
+    let frame: CIImage?
 
     var body: some View {
         GeometryReader { proxy in
-            if let frame {
-                Image(decorative: frame, scale: 1.0, orientation: .up)
-                    .resizable()
-                    .scaledToFill()
+            if frame != nil {
+                MetalCameraView(frame: frame)
                     .frame(width: proxy.size.width, height: proxy.size.height)
-                    .clipped()
             } else {
                 Color.black
                     .overlay {
@@ -27,4 +24,3 @@ struct CameraPreviewView: View {
         .ignoresSafeArea()
     }
 }
-

@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import Photos
 import UIKit
 
@@ -103,8 +104,8 @@ final class VideoRecordingService {
         }
     }
     
-    /// 添加帧
-    func appendFrame(_ cgImage: CGImage, at time: CMTime) {
+    /// 添加帧（CIImage → CVPixelBuffer via CIContext，无 CPU 读回）
+    func appendFrame(_ ciImage: CIImage, context: CIContext, at time: CMTime) {
         recordingQueue.async { [weak self] in
             guard let self = self,
                   self.isRecording,
@@ -113,22 +114,30 @@ final class VideoRecordingService {
                   videoInput.isReadyForMoreMediaData else {
                 return
             }
-            
+
             // 设置开始时间
             if self.startTime == nil {
                 self.startTime = time
                 self.assetWriter?.startSession(atSourceTime: .zero)
             }
-            
+
             // 计算相对时间
             let presentationTime = CMTimeSubtract(time, self.startTime!)
             self.currentTime = presentationTime
-            
-            // 创建 PixelBuffer
-            guard let pixelBuffer = self.createPixelBuffer(from: cgImage) else { return }
-            
+
+            // 从 pool 取 CVPixelBuffer
+            var pixelBuffer: CVPixelBuffer?
+            if let pool = self.pixelBufferPool {
+                CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
+            }
+            guard let buffer = pixelBuffer else { return }
+
+            // GPU → CVPixelBuffer（IOSurface 支持），无 CPU 拷贝
+            context.render(ciImage, to: buffer, bounds: ciImage.extent,
+                           colorSpace: CGColorSpaceCreateDeviceRGB())
+
             // 添加到写入器
-            if adaptor.append(pixelBuffer, withPresentationTime: presentationTime) {
+            if adaptor.append(buffer, withPresentationTime: presentationTime) {
                 let duration = CMTimeGetSeconds(presentationTime)
                 DispatchQueue.main.async {
                     self.onDurationUpdated?(duration)
@@ -179,50 +188,6 @@ final class VideoRecordingService {
     }
     
     // MARK: - 私有方法
-    
-    private func createPixelBuffer(from cgImage: CGImage) -> CVPixelBuffer? {
-        let width = cgImage.width
-        let height = cgImage.height
-
-        var pixelBuffer: CVPixelBuffer?
-
-        // 优先从 pool 取，避免每帧 malloc
-        if let pool = pixelBufferPool {
-            CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
-        }
-
-        // pool 不可用时回退到直接创建
-        if pixelBuffer == nil {
-            let attrs: [CFString: Any] = [
-                kCVPixelBufferCGImageCompatibilityKey: true,
-                kCVPixelBufferCGBitmapContextCompatibilityKey: true,
-                kCVPixelBufferIOSurfacePropertiesKey: [:]
-            ]
-            CVPixelBufferCreate(kCFAllocatorDefault, width, height,
-                                kCVPixelFormatType_32BGRA, attrs as CFDictionary, &pixelBuffer)
-        }
-
-        guard let buffer = pixelBuffer else { return nil }
-
-        CVPixelBufferLockBaseAddress(buffer, [])
-        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
-
-        guard let context = CGContext(
-            data: CVPixelBufferGetBaseAddress(buffer),
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-        ) else { return nil }
-
-        context.translateBy(x: 0, y: CGFloat(height))
-        context.scaleBy(x: 1, y: -1)
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-
-        return buffer
-    }
     
     private func saveToPhotoLibrary() {
         guard let fileURL = tempFileURL else {

@@ -253,7 +253,7 @@ struct ControlPanelView: View {
         return Button {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 viewModel.recordingVM.toggle(videoSize: viewModel.renderedFrame.map {
-                    CGSize(width: $0.width, height: $0.height)
+                    CGSize(width: $0.extent.width, height: $0.extent.height)
                 } ?? CGSize(width: 1080, height: 1920))
             }
             UIImpactFeedbackGenerator(style: .heavy).impactOccurred()

@@ -53,7 +53,7 @@ struct ContentView: View {
                let frame = viewModel.renderedFrame {
                 GeometryReader { geo in
                     let cs = ImageCoordinateSpace(
-                        imageSize: CGSize(width: frame.width, height: frame.height),
+                        imageSize: frame.extent.size,
                         viewSize: geo.size
                     )
                     OnboardingGuideView(
@@ -61,7 +61,7 @@ struct ContentView: View {
                         isCompleted: $hasCompletedOnboarding,
                         personCenter: center,
                         viewSize: geo.size,
-                        imageSize: CGSize(width: frame.width, height: frame.height),
+                        imageSize: frame.extent.size,
                         scale: cs.scale,
                         offsetX: cs.offsetX,
                         offsetY: cs.offsetY
@@ -104,8 +104,8 @@ struct ContentView: View {
                 }
             }
         }
-        .onChange(of: onboardingStep) { newStep in
-            if newStep == 3 { showAdvancedControlsForOnboarding = true }
+        .onChange(of: onboardingStep) {
+            if onboardingStep == 3 { showAdvancedControlsForOnboarding = true }
         }
         .onDisappear { viewModel.onDisappear() }
     }
@@ -164,7 +164,7 @@ struct ContentView: View {
         if let frame = viewModel.renderedFrame, viewModel.isSessionRunning {
             GeometryReader { geo in
                 let cs = ImageCoordinateSpace(
-                    imageSize: CGSize(width: frame.width, height: frame.height),
+                    imageSize: frame.extent.size,
                     viewSize: geo.size
                 )
 

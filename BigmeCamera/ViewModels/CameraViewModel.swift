@@ -7,7 +7,7 @@ import UIKit
 final class CameraViewModel: ObservableObject {
     // MARK: - 相机核心状态
     @Published var authorizationStatus: AVAuthorizationStatus = .notDetermined
-    @Published var renderedFrame: CGImage?
+    @Published var renderedFrame: CIImage?
     @Published var isSessionRunning = false
     @Published var isSaving = false
     @Published var lastSaveSuccess: Bool?
@@ -37,6 +37,14 @@ final class CameraViewModel: ObservableObject {
     private let cameraService = CameraService()
     nonisolated(unsafe) private let renderer = PersonSegmentationRenderer()
     private let renderQueue = DispatchQueue(label: "bigme.segmentation.queue")
+
+    // 仅供拍照路径使用：CIImage → CGImage（录像路径由 RecordingViewModel 自持 CIContext）
+    private let ciContext: CIContext = {
+        if let device = MTLCreateSystemDefaultDevice() {
+            return CIContext(mtlDevice: device, options: [.cacheIntermediates: false])
+        }
+        return CIContext()
+    }()
 
     private var frameTimestamps = RingBuffer<CFAbsoluteTime>(capacity: 120)
     private let fpsUpdateInterval: CFAbsoluteTime = 0.5
@@ -144,11 +152,12 @@ final class CameraViewModel: ObservableObject {
     // MARK: - 拍照
     func capturePhoto() {
         guard let frame = renderedFrame else { return }
+        guard let cgImage = ciContext.createCGImage(frame, from: frame.extent) else { return }
         isSaving = true
         lastSaveSuccess = nil
         showSaveCelebration = false
 
-        let uiImage = UIImage(cgImage: frame)
+        let uiImage = UIImage(cgImage: cgImage)
         PHPhotoLibrary.requestAuthorization { [weak self] status in
             guard status == .authorized || status == .limited else {
                 DispatchQueue.main.async {

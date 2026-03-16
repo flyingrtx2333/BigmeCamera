@@ -1,4 +1,6 @@
 import AVFoundation
+import CoreImage
+import Metal
 import SwiftUI
 
 @MainActor
@@ -9,6 +11,14 @@ final class RecordingViewModel: ObservableObject {
     @Published var lastSaveSuccess: Bool?
 
     private let service = VideoRecordingService()
+
+    // GPU→CVPixelBuffer 录像路径所需的 CIContext
+    private let ciContext: CIContext = {
+        if let device = MTLCreateSystemDefaultDevice() {
+            return CIContext(mtlDevice: device, options: [.cacheIntermediates: false])
+        }
+        return CIContext()
+    }()
 
     init() {
         service.onRecordingStateChanged = { [weak self] recording in
@@ -41,8 +51,8 @@ final class RecordingViewModel: ObservableObject {
         isRecording ? stop() : start(videoSize: videoSize)
     }
 
-    func appendFrame(_ image: CGImage, at time: CMTime) {
-        service.appendFrame(image, at: time)
+    func appendFrame(_ image: CIImage, at time: CMTime) {
+        service.appendFrame(image, context: ciContext, at: time)
     }
 
     func dismissCelebration() {

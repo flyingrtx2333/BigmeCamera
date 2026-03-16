@@ -3,3 +3,5 @@ output
 style
 calib_images
 *.py
+*.ipa
+build/

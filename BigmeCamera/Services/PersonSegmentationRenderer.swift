@@ -7,21 +7,13 @@ import Vision
 import UIKit
 
 struct RenderResult {
-    let image: CGImage
+    let image: CIImage
     let personCenter: CGPoint
 }
 
 final class PersonSegmentationRenderer {
-    // Metal 加速的 CIContext，与 StyleService 保持一致
-    private let context: CIContext = {
-        if let device = MTLCreateSystemDefaultDevice() {
-            return CIContext(mtlDevice: device, options: [
-                .cacheIntermediates: false,
-                .highQualityDownsample: false
-            ])
-        }
-        return CIContext(options: [.useSoftwareRenderer: false])
-    }()
+    // CIContext 已移至 MetalCameraView（显示）和 RecordingViewModel（录像），
+    // renderer 本身只构建 CIImage 滤镜链，不进行 GPU 提交。
     private let request: VNGeneratePersonSegmentationRequest
     private let sequenceHandler = VNSequenceRequestHandler()
 
@@ -226,11 +218,7 @@ final class PersonSegmentationRenderer {
                 .cropped(to: targetRect)
         }
 
-        guard let cgImage = context.createCGImage(composited, from: cameraImage.extent) else {
-            return nil
-        }
-
-        return RenderResult(image: cgImage, personCenter: personCenter)
+        return RenderResult(image: composited, personCenter: personCenter)
     }
     
     // MARK: - 贴纸渲染辅助方法
